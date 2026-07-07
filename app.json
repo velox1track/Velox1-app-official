@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Velox 1 Race Roulette",
+    "slug": "velox-1-race-roulette-app",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": null,
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": null,
+      "resizeMode": "contain",
+      "backgroundColor": "#2c3e50"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": null,
+        "backgroundColor": "#2c3e50"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "name": "Velox 1 Race Roulette",
+      "shortName": "Velox 1",
+      "description": "Race Roulette and Team Builder for track and field coaches",
+      "themeColor": "#2c3e50",
+      "backgroundColor": "#2c3e50",
+      "lang": "en"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7d2243a4-440d-4146-aa30-6a1e5545c605"
+      }
+    }
+  }
+}

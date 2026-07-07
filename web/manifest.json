@@ -1,0 +1,13 @@
+{
+  "name": "Velox 1 Race Roulette",
+  "short_name": "Velox 1",
+  "description": "Race Roulette and Team Builder for track and field coaches",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#2c3e50",
+  "background_color": "#2c3e50",
+  "lang": "en",
+  "icons": []
+}
