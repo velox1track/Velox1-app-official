@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -7,7 +7,6 @@ import {
   Pressable,
   Text
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
 import { ButtonPrimary, ButtonSecondary } from '../components';
@@ -22,9 +21,14 @@ import {
   getTeamAssignmentForEvent,
   preserveLanesByTeam
 } from '../lib/eventAssignments';
+import { useDivision } from '../context/DivisionContext';
+import { getTeams, setPendingLaneEventIndex } from '../lib/storage';
 
 const AssignRunnersScreen = ({ route, navigation }) => {
-  const { eventIndex, eventName } = route.params;
+  const { activeDivisionId } = useDivision();
+  const eventIndex = route?.params?.eventIndex;
+  const eventName = route?.params?.eventName;
+  const hasValidParams = eventIndex != null && !!eventName;
   
   const [teams, setTeams] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -40,55 +44,52 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   const isRelay = isRelayEvent(eventName);
   const requiredAthletes = isRelay ? getRelayAthleteCount(eventName) : 1;
 
-  useEffect(() => {
-    console.log('AssignRunnersScreen mounted');
-    console.log('showCancelConfirm:', showCancelConfirm);
-    console.log('showIncompleteConfirm:', showIncompleteConfirm);
-    loadData();
+  const resetTransientUi = useCallback(() => {
+    setTeamSelections({});
+    setSelectedTeamId(null);
+    setUsedAthleteIds([]);
+    setShowIncompleteConfirm(false);
+    setShowCancelConfirm(false);
+    setGenderFilter('mixed');
   }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!activeDivisionId || !hasValidParams) return;
+
     try {
       setIsLoading(true);
-      
-      // Load teams
-      const savedTeams = await AsyncStorage.getItem('teams');
-      const teamsData = savedTeams ? JSON.parse(savedTeams) : [];
+
+      const [teamsData, assignmentsData] = await Promise.all([
+        getTeams(activeDivisionId),
+        loadEventAssignments(activeDivisionId),
+      ]);
       setTeams(teamsData);
-      
-      // Load assignments
-      const assignmentsData = await loadEventAssignments();
       setAssignments(assignmentsData);
-      
-      // Get used athletes excluding this event (one-and-done enforcement)
+
       const usedIds = getUsedAthleteIdsExcludingEvent(assignmentsData, eventIndex);
       setUsedAthleteIds(usedIds);
-      
-      // Load existing selections for this event
+
       const existingSelections = {};
-      teamsData.forEach(team => {
+      teamsData.forEach((team) => {
         const teamAssignment = getTeamAssignmentForEvent(assignmentsData, eventIndex, team.id);
-        if (teamAssignment) {
-          existingSelections[team.id] = teamAssignment.athleteIds;
-        } else {
-          existingSelections[team.id] = [];
-        }
+        existingSelections[team.id] = teamAssignment ? teamAssignment.athleteIds : [];
       });
-      
+
       setTeamSelections(existingSelections);
-      
-      // Select first team by default
-      if (teamsData.length > 0) {
-        setSelectedTeamId(teamsData[0].id);
-      }
-      
+      setSelectedTeamId(teamsData.length > 0 ? teamsData[0].id : null);
     } catch (error) {
       console.log('Error loading data:', error);
       Alert.alert('Error', 'Failed to load data. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [activeDivisionId, eventIndex, hasValidParams]);
+
+  useEffect(() => {
+    if (!hasValidParams || !activeDivisionId) return;
+    resetTransientUi();
+    loadData();
+  }, [hasValidParams, activeDivisionId, loadData, resetTransientUi]);
 
   const getAvailableAthletes = (team) => {
     let athletes = team.athletes;
@@ -222,6 +223,11 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   };
 
   const saveAssignments = async () => {
+    if (!activeDivisionId) {
+      Alert.alert('Error', 'No active division selected.');
+      return;
+    }
+
     console.log('saveAssignments called');
     try {
       setIsSaving(true);
@@ -251,24 +257,24 @@ const AssignRunnersScreen = ({ route, navigation }) => {
       // Save assignments
       console.log('Calling setAssignmentForEvent...');
       const updatedAssignments = await setAssignmentForEvent(
-        assignments, 
-        eventIndex, 
-        eventName, 
-        isRelay, 
+        assignments,
+        eventIndex,
+        eventName,
+        isRelay,
         teamAssignments,
-        lanesToSave
+        lanesToSave,
+        activeDivisionId
       );
       
       console.log('setAssignmentForEvent completed');
-      
+
       if (updatedAssignments === assignments) {
-        console.log('Failed to save - assignments unchanged');
-        alert('Error: Failed to save assignments. Please try again.');
+        Alert.alert('Error', 'Failed to save assignments. Please try again.');
         return;
       }
-      
-      // Successfully saved - signal Race Roulette to auto-open lane modal
-      await AsyncStorage.setItem('pendingLaneEventIndex', String(eventIndex));
+
+      setAssignments(updatedAssignments);
+      await setPendingLaneEventIndex(eventIndex, activeDivisionId);
 
       // Use a small delay to ensure state is saved before navigation
       setTimeout(() => {
@@ -306,6 +312,18 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   const handleIncompleteCancel = () => {
     setShowIncompleteConfirm(false);
   };
+
+  if (!hasValidParams) {
+    return (
+      <View style={styles.container}>
+        <Card style={styles.emptyCard}>
+          <MobileH2>Missing Event</MobileH2>
+          <MobileBody>No event was selected. Please go back and try again.</MobileBody>
+          <ButtonPrimary onPress={() => navigation.goBack()}>Go Back</ButtonPrimary>
+        </Card>
+      </View>
+    );
+  }
 
   if (isLoading) {
     return (

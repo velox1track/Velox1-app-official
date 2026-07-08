@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -8,7 +8,6 @@ import {
   Modal,
   Text
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import eventBus from '../lib/eventBus';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
@@ -17,6 +16,18 @@ import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 import { loadEventAssignments, getTeamAssignmentForEvent } from '../lib/eventAssignments';
 import { reconcileScoringWithTeamCount } from '../lib/scoring';
+import { useDivision } from '../context/DivisionContext';
+import {
+  clearEventResults,
+  getEventResults,
+  getEventSequence,
+  getInfractionsSettings,
+  getPlannedTeams,
+  getRevealedIndex,
+  getScoringSettings,
+  getTeams,
+  saveEventResults as saveEventResultsToStorage,
+} from '../lib/storage';
 
 const DEFAULT_INFRACTIONS = [
   { id: 'false_start', label: 'False Start', delta: -2, allowMultiple: true },
@@ -27,6 +38,7 @@ const DEFAULT_INFRACTIONS = [
 ];
 
 const ScoreboardScreen = ({ navigation }) => {
+  const { activeDivisionId } = useDivision();
   const [teams, setTeams] = useState([]);
   const [eventSequence, setEventSequence] = useState([]);
   const [revealedIndex, setRevealedIndex] = useState(0);
@@ -42,6 +54,69 @@ const ScoreboardScreen = ({ navigation }) => {
 
   const scrollViewRef = useRef(null);
   const formRef = useRef(null);
+
+  const mapInfractionPresets = (infractions) => {
+    if (infractions?.items?.length) {
+      return infractions.items.map((it) => ({
+        id: it.id,
+        label: it.label,
+        delta: Number(it.delta) || 0,
+      }));
+    }
+    return DEFAULT_INFRACTIONS;
+  };
+
+  const loadScoringForDivision = useCallback(async (divisionId) => {
+    const [teamsData, scoring, planned] = await Promise.all([
+      getTeams(divisionId),
+      getScoringSettings(divisionId),
+      getPlannedTeams(divisionId),
+    ]);
+    const effectiveCount = teamsData.length > 0 ? teamsData.length : planned;
+    return reconcileScoringWithTeamCount(scoring, effectiveCount);
+  }, []);
+
+  const resetTransientUi = useCallback(() => {
+    setSelectedEvent(null);
+    setShowResultForm(false);
+    setShowAllTeamScores(false);
+    setExpandedEvents(new Set());
+    setShowResetAllConfirm(false);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    if (!activeDivisionId) return;
+
+    try {
+      const [
+        teamsData,
+        sequence,
+        revealed,
+        results,
+        assignmentsData,
+        scoring,
+        infractions,
+      ] = await Promise.all([
+        getTeams(activeDivisionId),
+        getEventSequence(activeDivisionId),
+        getRevealedIndex(activeDivisionId),
+        getEventResults(activeDivisionId),
+        loadEventAssignments(activeDivisionId),
+        loadScoringForDivision(activeDivisionId),
+        getInfractionsSettings(activeDivisionId),
+      ]);
+
+      setTeams(teamsData);
+      setEventSequence(sequence);
+      setRevealedIndex(revealed);
+      setEventResults(results);
+      setAssignments(assignmentsData);
+      if (scoring) setScoringSettings(scoring);
+      setInfractionPresets(mapInfractionPresets(infractions));
+    } catch (error) {
+      console.log('Error loading data:', error);
+    }
+  }, [activeDivisionId, loadScoringForDivision]);
 
   // Default scoring table (fallback if Settings not configured)
   const defaultScoringTable = {
@@ -61,139 +136,55 @@ const ScoreboardScreen = ({ navigation }) => {
     return table;
   };
 
-  // Load saved data on component mount
+  // Load division-scoped data on mount and when division changes
   useEffect(() => {
+    if (!activeDivisionId) return;
+    resetTransientUi();
     loadData();
-  }, []);
+  }, [activeDivisionId, loadData, resetTransientUi]);
 
-  // Reload assignments and scoring when screen comes into focus
+  // Reload when screen comes into focus
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', async () => {
-      const assignmentsData = await loadEventAssignments();
-      setAssignments(assignmentsData);
-      // Re-read and reconcile scoring in case it changed while away
-      try {
-        const [savedScoring, savedTeams] = await Promise.all([
-          AsyncStorage.getItem('settings.scoring'),
-          AsyncStorage.getItem('teams'),
-        ]);
-        const teamCount = savedTeams ? JSON.parse(savedTeams).length : 0;
-        const parsed = savedScoring ? JSON.parse(savedScoring) : null;
-        const reconciled = reconcileScoringWithTeamCount(
-          parsed && Array.isArray(parsed.places) ? parsed : null,
-          teamCount
-        );
-        if (reconciled) setScoringSettings(reconciled);
-      } catch {}
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (activeDivisionId) {
+        loadData();
+      }
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, activeDivisionId, loadData]);
 
-  // Listen for scoring settings updates
+  // Listen for scoring and infractions updates in the active division
   useEffect(() => {
+    if (!activeDivisionId) return;
+
     const handleScoringUpdate = async () => {
       try {
-        const [savedScoring, savedTeams] = await Promise.all([
-          AsyncStorage.getItem('settings.scoring'),
-          AsyncStorage.getItem('teams'),
-        ]);
-        const teamCount = savedTeams ? JSON.parse(savedTeams).length : 0;
-        const parsed = savedScoring ? JSON.parse(savedScoring) : null;
-        const reconciled = reconcileScoringWithTeamCount(
-          parsed && Array.isArray(parsed.places) ? parsed : null,
-          teamCount
-        );
+        const reconciled = await loadScoringForDivision(activeDivisionId);
         if (reconciled) setScoringSettings(reconciled);
       } catch {}
     };
 
     const handleInfractionsUpdate = async () => {
       try {
-        const saved = await AsyncStorage.getItem('settings.infractions');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-            setInfractionPresets(parsed.items.map(it => ({ id: it.id, label: it.label, delta: Number(it.delta) || 0 })));
-          } else {
-            setInfractionPresets(DEFAULT_INFRACTIONS);
-          }
-        } else {
-          setInfractionPresets(DEFAULT_INFRACTIONS);
-        }
+        const infractions = await getInfractionsSettings(activeDivisionId);
+        setInfractionPresets(mapInfractionPresets(infractions));
       } catch {}
     };
 
-    eventBus.on('settings.scoring.updated', handleScoringUpdate);
-    eventBus.on('settings.infractions.updated', handleInfractionsUpdate);
+    const unsubScoring = eventBus.onForDivision(activeDivisionId, 'settings.scoring.updated', handleScoringUpdate);
+    const unsubInfractions = eventBus.onForDivision(activeDivisionId, 'settings.infractions.updated', handleInfractionsUpdate);
 
     return () => {
-      eventBus.off('settings.scoring.updated', handleScoringUpdate);
-      eventBus.off('settings.infractions.updated', handleInfractionsUpdate);
+      unsubScoring();
+      unsubInfractions();
     };
-  }, []);
+  }, [activeDivisionId, loadScoringForDivision]);
 
-  const loadData = async () => {
+  const persistEventResults = async (newResults) => {
+    if (!activeDivisionId) return;
     try {
-      const savedTeams = await AsyncStorage.getItem('teams');
-      const savedEventSequence = await AsyncStorage.getItem('eventSequence');
-      const savedRevealedIndex = await AsyncStorage.getItem('revealedIndex');
-      const savedEventResults = await AsyncStorage.getItem('eventResults');
-      const savedInfractions = await AsyncStorage.getItem('settings.infractions');
-      const savedScoring = await AsyncStorage.getItem('settings.scoring');
-      
-      if (savedTeams) {
-        setTeams(JSON.parse(savedTeams));
-      }
-      if (savedEventSequence) {
-        setEventSequence(JSON.parse(savedEventSequence));
-      }
-      if (savedRevealedIndex) {
-        setRevealedIndex(parseInt(savedRevealedIndex));
-      }
-      if (savedEventResults) {
-        setEventResults(JSON.parse(savedEventResults));
-      }
-      if (savedInfractions) {
-        try {
-          const parsed = JSON.parse(savedInfractions);
-          if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-            setInfractionPresets(parsed.items.map(it => ({ id: it.id, label: it.label, delta: Number(it.delta) || 0 })));
-          } else {
-            setInfractionPresets(DEFAULT_INFRACTIONS);
-          }
-        } catch {
-          setInfractionPresets(DEFAULT_INFRACTIONS);
-        }
-      } else {
-        setInfractionPresets(DEFAULT_INFRACTIONS);
-      }
-      {
-        // Reconcile saved scoring against the actual team count so stale or
-        // mismatched values are automatically corrected to the right preset.
-        const teamCount = savedTeams ? JSON.parse(savedTeams).length : 0;
-        try {
-          const parsed = savedScoring ? JSON.parse(savedScoring) : null;
-          const reconciled = reconcileScoringWithTeamCount(
-            parsed && Array.isArray(parsed.places) ? parsed : null,
-            teamCount
-          );
-          if (reconciled) setScoringSettings(reconciled);
-        } catch {}
-      }
-      
-      // Load assignments
-      const assignmentsData = await loadEventAssignments();
-      setAssignments(assignmentsData);
-      
-    } catch (error) {
-      console.log('Error loading data:', error);
-    }
-  };
-
-  const saveEventResults = async (newResults) => {
-    try {
-      await AsyncStorage.setItem('eventResults', JSON.stringify(newResults));
+      await saveEventResultsToStorage(newResults, activeDivisionId);
     } catch (error) {
       console.log('Error saving event results:', error);
     }
@@ -286,7 +277,7 @@ const ScoreboardScreen = ({ navigation }) => {
     const filtered = eventResults.filter(r => r.eventIndex !== selectedEvent.eventIndex);
     const newResults = [...filtered, newResult].sort((a,b) => a.eventIndex - b.eventIndex);
     setEventResults(newResults);
-    saveEventResults(newResults);
+    persistEventResults(newResults);
     
     setShowResultForm(false);
     setSelectedEvent(null);
@@ -299,10 +290,16 @@ const ScoreboardScreen = ({ navigation }) => {
     setShowResetAllConfirm(true);
   };
 
-  const handleResetAllConfirm = () => {
+  const handleResetAllConfirm = async () => {
     console.log('Confirming reset all results');
-    setEventResults([]);
-    saveEventResults([]);
+    try {
+      if (activeDivisionId) {
+        await clearEventResults(activeDivisionId);
+      }
+      setEventResults([]);
+    } catch (error) {
+      console.log('Error resetting results:', error);
+    }
     setShowResetAllConfirm(false);
   };
 

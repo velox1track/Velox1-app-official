@@ -11,17 +11,36 @@ import {
   Pressable,
   Modal
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import eventBus from '../lib/eventBus';
+import eventBus, { emitForDivision } from '../lib/eventBus';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
 import { ButtonPrimary, ButtonSecondary, Input } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
-import { getDefaultEventPool } from '../lib/randomizer';
+import { getDefaultEventPool, getSequenceValidationSummary } from '../lib/randomizer';
 import { buildScoringPlaces, reconcileScoringWithTeamCount } from '../lib/scoring';
+import { useDivision } from '../context/DivisionContext';
+import SequenceValidationModal from '../components/SequenceValidationModal';
+import {
+  getActiveDivisionData,
+  getAthletes,
+  getEventPool,
+  getInfractionsSettings,
+  getPlannedTeams,
+  getRouletteSettings,
+  getScoringSettings,
+  getTeams,
+  saveEventPool as saveEventPoolToStorage,
+  saveInfractionsSettings as saveInfractionsSettingsToStorage,
+  savePlannedTeams as savePlannedTeamsToStorage,
+  saveRouletteSettings as saveRouletteSettingsToStorage,
+  saveScoringSettings as saveScoringSettingsToStorage,
+  resetDivision,
+  RESET_SCOPES,
+} from '../lib/storage';
 
 const SettingsScreen = ({ navigation }) => {
+  const { activeDivisionId, activeDivisionName } = useDivision();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   
@@ -73,6 +92,8 @@ const SettingsScreen = ({ navigation }) => {
   const [infractionsNotice, setInfractionsNotice] = useState('');
   const [editingInfractionId, setEditingInfractionId] = useState(null);
   const [openInfractionMenuId, setOpenInfractionMenuId] = useState(null);
+  const [sequenceValidationSummary, setSequenceValidationSummary] = useState(null);
+  const [showSequenceValidationModal, setShowSequenceValidationModal] = useState(false);
 
   // Animated values for smooth toggle transitions
   const toggleAnimations = useRef({});
@@ -103,55 +124,51 @@ const SettingsScreen = ({ navigation }) => {
     technicalEvents: 'Technical\nEvents'
   };
 
-  // Load data stats and event pool on component mount
+  // Load division-scoped settings whenever the active division changes
   useEffect(() => {
-    loadSavedState();
-    loadRouletteSettings();
-    loadScoringSettings();
-    loadInfractionsSettings();
-    // Load planned team count from storage
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem('settings.teamConfig');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.plannedTeams === 'number') {
-            setPlannedTeams(parsed.plannedTeams);
-          }
-        }
-      } catch {}
-    })();
-    // Live-sync scoring places with team count
-    const handleTeamsUpdated = (count) => {
+    if (!activeDivisionId) return;
+    loadDivisionSettings();
+  }, [activeDivisionId]);
+
+  useEffect(() => {
+    if (!activeDivisionId) return;
+
+    const handleTeamsUpdated = async (count) => {
       setTeamCount(count);
       const desired = Math.max(2, Number(count) || 0);
       if (desired === 0) return;
       const newSettings = { places: buildScoringPlaces(desired), activePresetId: `${desired}T` };
       setScoringSettings(newSettings);
       setInlineNotice(`Team count changed to ${count}. Scoring updated to ${desired}-team preset.`);
-      AsyncStorage.setItem('settings.scoring', JSON.stringify(newSettings))
-        .then(() => eventBus.emit('settings.scoring.updated'))
-        .catch(() => {});
+      try {
+        await saveScoringSettingsToStorage(newSettings);
+        emitForDivision(activeDivisionId, 'settings.scoring.updated');
+      } catch {}
     };
-    const handlePlannedTeams = (planned) => {
+
+    const handlePlannedTeams = async (planned) => {
       setPlannedTeams(planned);
-      if (teamCount > 0) return; // actual teams win
+      if (teamCount > 0) return;
       const desired = Math.max(2, Number(planned) || 0);
       if (desired === 0) return;
       const newSettings = { places: buildScoringPlaces(desired), activePresetId: `${desired}T` };
       setScoringSettings(newSettings);
       setInlineNotice(`Planned team count changed to ${planned}. Scoring updated to ${desired}-team preset.`);
-      AsyncStorage.setItem('settings.scoring', JSON.stringify(newSettings))
-        .then(() => eventBus.emit('settings.scoring.updated'))
-        .catch(() => {});
+      try {
+        await savePlannedTeamsToStorage(planned);
+        await saveScoringSettingsToStorage(newSettings);
+        emitForDivision(activeDivisionId, 'settings.scoring.updated');
+      } catch {}
     };
-    eventBus.on('teamsUpdated', handleTeamsUpdated);
-    eventBus.on('plannedTeamsUpdated', handlePlannedTeams);
+
+    const unsubTeams = eventBus.onForDivision(activeDivisionId, 'teamsUpdated', handleTeamsUpdated);
+    const unsubPlanned = eventBus.onForDivision(activeDivisionId, 'plannedTeamsUpdated', handlePlannedTeams);
+
     return () => {
-      eventBus.off('teamsUpdated', handleTeamsUpdated);
-      eventBus.off('plannedTeamsUpdated', handlePlannedTeams);
+      unsubTeams();
+      unsubPlanned();
     };
-  }, []);
+  }, [activeDivisionId, teamCount]);
 
   // Initialize toggle animations when event pool changes
   useEffect(() => {
@@ -165,50 +182,76 @@ const SettingsScreen = ({ navigation }) => {
     });
   }, [eventPool]);
 
-  // Reload settings when screen comes into focus
+  // Reload when returning to this screen
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      loadRouletteSettings();
-      loadScoringSettings();
-      loadInfractionsSettings();
+      if (activeDivisionId) {
+        loadDivisionSettings();
+      }
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, activeDivisionId]);
 
-  const loadSavedState = async () => {
+  const loadDivisionSettings = async () => {
     try {
-      const athletes = await AsyncStorage.getItem('athletes');
-      const teams = await AsyncStorage.getItem('teams');
-      const eventSequence = await AsyncStorage.getItem('eventSequence');
-      const eventResults = await AsyncStorage.getItem('eventResults');
-      const savedEventPool = await AsyncStorage.getItem('eventPool');
-      
-      const athletesArr = athletes ? JSON.parse(athletes) : [];
-      const teamsArr = teams ? JSON.parse(teams) : [];
-      setDataStats({
-        athletes: athletesArr.length,
-        teams: teamsArr.length,
-        eventSequence: eventSequence ? JSON.parse(eventSequence).length : 0,
-        eventResults: eventResults ? JSON.parse(eventResults).length : 0
-      });
-      setTeamCount(Array.isArray(teamsArr) ? teamsArr.length : 0);
+      const [
+        { division },
+        athletes,
+        teams,
+        planned,
+        eventPoolData,
+        roulette,
+        scoringBase,
+        infractions,
+      ] = await Promise.all([
+        getActiveDivisionData(),
+        getAthletes(),
+        getTeams(),
+        getPlannedTeams(),
+        getEventPool(),
+        getRouletteSettings(),
+        getScoringSettings(),
+        getInfractionsSettings(),
+      ]);
+      const eventSequence = Array.isArray(division.eventSequence) ? division.eventSequence : [];
+      const eventResults = Array.isArray(division.eventResults) ? division.eventResults : [];
 
-      if (savedEventPool) {
-        setEventPool(JSON.parse(savedEventPool));
-      } else {
-        // Use the updated default event pool if no saved data exists
-        setEventPool(getDefaultEventPool());
+      setDataStats({
+        athletes: athletes.length,
+        teams: teams.length,
+        eventSequence: eventSequence.length,
+        eventResults: eventResults.length,
+      });
+      setTeamCount(teams.length);
+      setPlannedTeams(planned);
+      setEventPool(eventPoolData);
+      setRouletteSettings(roulette);
+
+      const effectiveCount = teams.length > 0 ? teams.length : planned;
+      const reconciled = reconcileScoringWithTeamCount(scoringBase, effectiveCount);
+      if (reconciled) {
+        setScoringSettings(reconciled);
       }
+
+      setInfractionsSettings({
+        items: infractions.items,
+        activePresetId: infractions.activePresetId || 'custom',
+      });
     } catch (error) {
-      console.log('Error loading saved state:', error);
+      console.log('Error loading division settings:', error);
     }
+  };
+
+  const savePlannedTeams = async (plannedTeamsValue) => {
+    await savePlannedTeamsToStorage(plannedTeamsValue);
   };
 
   const saveEventPool = async (newEventPool) => {
     try {
-      await AsyncStorage.setItem('eventPool', JSON.stringify(newEventPool));
+      await saveEventPoolToStorage(newEventPool);
       setEventPool(newEventPool);
+      emitForDivision(activeDivisionId, 'settings.eventPool.updated');
     } catch (error) {
       console.log('Error saving event pool:', error);
     }
@@ -296,21 +339,6 @@ const SettingsScreen = ({ navigation }) => {
     );
   };
 
-  // Load/save: Roulette
-  const loadRouletteSettings = async () => {
-    try {
-      const raw = await AsyncStorage.getItem('settings.roulette');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setRouletteSettings({
-          totalEvents: Number(parsed.totalEvents) || 5,
-          numRelays: typeof parsed.numRelays === 'number' ? parsed.numRelays : 1,
-          relayPositions: Array.isArray(parsed.relayPositions) ? parsed.relayPositions : []
-        });
-      }
-    } catch {}
-  };
-
   const saveRouletteSettings = async () => {
     const { totalEvents, numRelays, relayPositions } = rouletteSettings;
     if (totalEvents < 1) {
@@ -322,11 +350,22 @@ const SettingsScreen = ({ navigation }) => {
       return;
     }
     const filtered = relayPositions.filter(p => p >= 1 && p <= totalEvents).slice(0, totalEvents);
+    const summary = getSequenceValidationSummary(eventPool, totalEvents, numRelays);
+    if (!summary.success) {
+      setSequenceValidationSummary(summary);
+      setShowSequenceValidationModal(true);
+      return;
+    }
+
     setIsSavingRoulette(true);
     try {
-      await AsyncStorage.setItem('settings.roulette', JSON.stringify({ totalEvents, numRelays, relayPositions: filtered }));
-      setRouletteSettings(prev => ({ ...prev, relayPositions: filtered }));
-      eventBus.emit('settings.roulette.updated');
+      const saved = await saveRouletteSettingsToStorage({
+        totalEvents,
+        numRelays,
+        relayPositions: filtered,
+      });
+      setRouletteSettings(saved);
+      emitForDivision(activeDivisionId, 'settings.roulette.updated');
       Alert.alert('Saved', 'Race Roulette sequence settings updated.');
     } catch {
       Alert.alert('Error', 'Failed to save settings.');
@@ -335,49 +374,11 @@ const SettingsScreen = ({ navigation }) => {
     }
   };
 
-  // Load/save: Scoring
-  const loadScoringSettings = async () => {
-    try {
-      // Determine effective team count to reconcile scoring places against
-      let effectiveCount = 0;
-      try {
-        const teamsRaw = await AsyncStorage.getItem('teams');
-        if (teamsRaw) {
-          const parsedTeams = JSON.parse(teamsRaw);
-          if (Array.isArray(parsedTeams) && parsedTeams.length > 0) {
-            effectiveCount = parsedTeams.length;
-          }
-        }
-      } catch {}
-      if (effectiveCount === 0) {
-        try {
-          const configRaw = await AsyncStorage.getItem('settings.teamConfig');
-          if (configRaw) {
-            const cfg = JSON.parse(configRaw);
-            if (cfg && typeof cfg.plannedTeams === 'number' && cfg.plannedTeams > 0) {
-              effectiveCount = cfg.plannedTeams;
-            }
-          }
-        } catch {}
-      }
-
-      const raw = await AsyncStorage.getItem('settings.scoring');
-      const parsed = raw ? JSON.parse(raw) : null;
-      const reconciled = reconcileScoringWithTeamCount(
-        parsed && Array.isArray(parsed.places) ? parsed : null,
-        effectiveCount
-      );
-      if (reconciled) {
-        setScoringSettings(reconciled);
-      }
-    } catch {}
-  };
-
   const saveScoringSettings = async () => {
     setIsSavingScoring(true);
     try {
-      await AsyncStorage.setItem('settings.scoring', JSON.stringify(scoringSettings));
-      eventBus.emit('settings.scoring.updated');
+      await saveScoringSettingsToStorage(scoringSettings);
+      emitForDivision(activeDivisionId, 'settings.scoring.updated');
       Alert.alert('Saved', 'Points scoring settings updated.');
     } catch {
       Alert.alert('Error', 'Failed to save scoring settings.');
@@ -407,23 +408,11 @@ const SettingsScreen = ({ navigation }) => {
     </View>
   );
 
-  const loadInfractionsSettings = async () => {
-    try {
-      const raw = await AsyncStorage.getItem('settings.infractions');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.items)) {
-          setInfractionsSettings({ items: parsed.items, activePresetId: parsed.activePresetId || 'custom' });
-        }
-      }
-    } catch {}
-  };
-
   const saveInfractionsSettings = async () => {
     setIsSavingInfractions(true);
     try {
-      await AsyncStorage.setItem('settings.infractions', JSON.stringify(infractionsSettings));
-      eventBus.emit('settings.infractions.updated');
+      await saveInfractionsSettingsToStorage(infractionsSettings);
+      emitForDivision(activeDivisionId, 'settings.infractions.updated');
       Alert.alert('Saved', 'Infractions settings updated.');
     } catch {
       Alert.alert('Error', 'Failed to save infractions settings.');
@@ -493,25 +482,12 @@ const SettingsScreen = ({ navigation }) => {
   };
 
   const handleClearAllDataConfirm = async () => {
-    console.log('Clearing all data');
+    console.log('Clearing all data for active division');
     try {
-      await AsyncStorage.multiRemove([
-        'athletes',
-        'teams', 
-        'eventSequence',
-        'revealedIndex',
-        'eventResults'
-      ]);
-      
-      setDataStats({
-        athletes: 0,
-        teams: 0,
-        eventSequence: 0,
-        eventResults: 0
-      });
-      
+      await resetDivision(activeDivisionId, RESET_SCOPES.ALL_DATA);
+      await loadDivisionSettings();
       setShowClearAllDataConfirm(false);
-      console.log('All data cleared successfully');
+      console.log('Division data cleared successfully');
     } catch (error) {
       console.error('Error clearing data:', error);
       setShowClearAllDataConfirm(false);
@@ -529,20 +505,26 @@ const SettingsScreen = ({ navigation }) => {
     setShowClearSpecificConfirm(true);
   };
 
+  const CLEAR_SCOPE_BY_TYPE = {
+    athletes: RESET_SCOPES.ATHLETES,
+    teams: RESET_SCOPES.TEAMS,
+    eventSequence: RESET_SCOPES.SEQUENCE,
+    eventResults: RESET_SCOPES.RESULTS,
+  };
+
   const handleClearSpecificConfirm = async () => {
     if (!clearSpecificType) return;
-    
-    const { dataType, key } = clearSpecificType;
-    console.log(`Clearing ${dataType} data`);
-    
+
+    const { dataType } = clearSpecificType;
+    const scope = CLEAR_SCOPE_BY_TYPE[dataType];
+    console.log(`Clearing ${dataType} data for active division`);
+
     try {
-      await AsyncStorage.removeItem(key);
-      
-      setDataStats(prev => ({
-        ...prev,
-        [dataType]: 0
-      }));
-      
+      if (scope) {
+        await resetDivision(activeDivisionId, scope);
+        await loadDivisionSettings();
+      }
+
       setShowClearSpecificConfirm(false);
       setClearSpecificType(null);
       console.log(`${dataType} cleared successfully`);
@@ -561,11 +543,11 @@ const SettingsScreen = ({ navigation }) => {
 
   const handleResetTeamsConfirm = async () => {
     try {
-      await AsyncStorage.removeItem('teams');
-      await AsyncStorage.removeItem('eventAssignments');
+      await resetDivision(activeDivisionId, RESET_SCOPES.TEAMS);
       setTeamCount(0);
       setDataStats(prev => ({ ...prev, teams: 0 }));
-      eventBus.emit('teamsUpdated', 0);
+      emitForDivision(activeDivisionId, 'teamsUpdated', 0);
+      await loadDivisionSettings();
     } catch (error) {
       console.error('Error resetting teams:', error);
     } finally {
@@ -580,20 +562,19 @@ const SettingsScreen = ({ navigation }) => {
   const exportData = async () => {
     console.log('Export data button pressed');
     try {
-      const athletes = await AsyncStorage.getItem('athletes');
-      const teams = await AsyncStorage.getItem('teams');
-      const eventSequence = await AsyncStorage.getItem('eventSequence');
-      const eventResults = await AsyncStorage.getItem('eventResults');
-      
+      const { division } = await getActiveDivisionData();
+
       const data = {
-        athletes: athletes ? JSON.parse(athletes) : [],
-        teams: teams ? JSON.parse(teams) : [],
-        eventSequence: eventSequence ? JSON.parse(eventSequence) : [],
-        eventResults: eventResults ? JSON.parse(eventResults) : [],
+        divisionId: activeDivisionId,
+        divisionName: activeDivisionName,
+        athletes: division.athletes || [],
+        teams: division.teams || [],
+        eventSequence: division.eventSequence || [],
+        eventResults: division.eventResults || [],
         exportDate: new Date().toISOString(),
-        appVersion: '1.0.0'
+        appVersion: '1.0.0',
       };
-      
+
       setExportDataInfo(data);
       setShowExportDataInfo(true);
       console.log('Export data prepared');
@@ -615,7 +596,8 @@ const SettingsScreen = ({ navigation }) => {
   const handleResetProgressConfirm = async () => {
     console.log('Resetting event progress');
     try {
-      await AsyncStorage.removeItem('revealedIndex');
+      await resetDivision(activeDivisionId, RESET_SCOPES.PROGRESS);
+      await loadDivisionSettings();
       setShowResetProgressConfirm(false);
       console.log('Event progress reset successfully');
     } catch (error) {
@@ -874,8 +856,8 @@ const SettingsScreen = ({ navigation }) => {
                     if (teamCount > 0) return;
                     const v = Math.max(2, (plannedTeams || 0) - 1);
                     setPlannedTeams(v);
-                    eventBus.emit('plannedTeamsUpdated', v);
-                    try { await AsyncStorage.setItem('settings.teamConfig', JSON.stringify({ plannedTeams: v })); } catch {}
+                    emitForDivision(activeDivisionId, 'plannedTeamsUpdated', v);
+                    try { await savePlannedTeams(v); } catch {}
                   }}
                   disabled={teamCount > 0}
                 >
@@ -890,8 +872,8 @@ const SettingsScreen = ({ navigation }) => {
                     if (teamCount > 0) return;
                     const v = Math.min(32, (plannedTeams || 0) + 1);
                     setPlannedTeams(v);
-                    eventBus.emit('plannedTeamsUpdated', v);
-                    try { await AsyncStorage.setItem('settings.teamConfig', JSON.stringify({ plannedTeams: v })); } catch {}
+                    emitForDivision(activeDivisionId, 'plannedTeamsUpdated', v);
+                    try { await savePlannedTeams(v); } catch {}
                   }}
                   disabled={teamCount > 0}
                 >
@@ -1411,6 +1393,13 @@ const SettingsScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      <SequenceValidationModal
+        visible={showSequenceValidationModal}
+        title="Cannot Save Sequence"
+        summary={sequenceValidationSummary}
+        onClose={() => setShowSequenceValidationModal(false)}
+      />
     </View>
   );
 };

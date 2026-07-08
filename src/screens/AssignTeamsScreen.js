@@ -8,8 +8,7 @@ import {
   Modal,
   Text
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import eventBus from '../lib/eventBus';
+import eventBus, { emitForDivision } from '../lib/eventBus';
 import TeamList from '../components/TeamList';
 import { assignTeams, moveAthlete, getTeamColors, getColorName } from '../lib/assigner';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
@@ -17,10 +16,20 @@ import { Card } from '../components/Card';
 import { ButtonPrimary, ButtonSecondary, Input } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
+import { useDivision } from '../context/DivisionContext';
+import { getActiveDivisionData, getAthletes, updateActiveDivisionData } from '../lib/storage';
+import { useDivisionTeams } from '../hooks/useDivisionTeams';
 
 const AssignTeamsScreen = () => {
+  const { activeDivisionId } = useDivision();
+  const {
+    teams,
+    plannedTeams,
+    persistTeams,
+    setPlannedTeamCount,
+    wipeTeams,
+  } = useDivisionTeams();
   const [athletes, setAthletes] = useState([]);
-  const [teams, setTeams] = useState([]);
   const [numTeams, setNumTeams] = useState('4');
   const [showTeamSize, setShowTeamSize] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -38,46 +47,36 @@ const AssignTeamsScreen = () => {
   const [selectedTeamForAssignment, setSelectedTeamForAssignment] = useState(null); // Team to assign to
   const [teamsAcceptingRandom, setTeamsAcceptingRandom] = useState({}); // { teamId: boolean }
 
-  // Load saved data on component mount
+  // Load division-scoped athletes on mount and when division changes
   useEffect(() => {
-    loadData();
-    // Subscribe to planned team count updates
-    const handlePlanned = (planned) => {
-      setNumTeams(String(planned));
-    };
-    eventBus.on('plannedTeamsUpdated', handlePlanned);
-    return () => {
-      eventBus.off('plannedTeamsUpdated', handlePlanned);
-    };
-  }, []);
+    if (!activeDivisionId) return;
+    loadAthletesAndResults();
+  }, [activeDivisionId]);
 
-  const loadData = async () => {
+  useEffect(() => {
+    setNumTeams(String(plannedTeams));
+  }, [plannedTeams]);
+
+  const loadAthletesAndResults = async () => {
     try {
-      const savedAthletes = await AsyncStorage.getItem('athletes');
-      const savedTeams = await AsyncStorage.getItem('teams');
-      const savedResults = await AsyncStorage.getItem('eventResults');
-      const teamConfigRaw = await AsyncStorage.getItem('settings.teamConfig');
-      
-      if (savedAthletes) {
-        setAthletes(JSON.parse(savedAthletes));
-      }
-      if (savedTeams) {
-        setTeams(JSON.parse(savedTeams));
-      }
-      if (savedResults) {
-        const arr = JSON.parse(savedResults);
-        setHasResults(Array.isArray(arr) && arr.length > 0);
-      }
-      if (teamConfigRaw) {
-        try {
-          const cfg = JSON.parse(teamConfigRaw);
-          if (cfg && typeof cfg.plannedTeams === 'number' && cfg.plannedTeams > 0) {
-            setNumTeams(String(cfg.plannedTeams));
-          }
-        } catch {}
-      }
+      const [roster, { division }] = await Promise.all([
+        getAthletes(activeDivisionId),
+        getActiveDivisionData(),
+      ]);
+      setAthletes(roster);
+      const results = Array.isArray(division.eventResults) ? division.eventResults : [];
+      setHasResults(results.length > 0);
     } catch (error) {
       console.log('Error loading data:', error);
+    }
+  };
+
+  const persistTeamsAndNotify = async (newTeams) => {
+    try {
+      await persistTeams(newTeams);
+      emitForDivision(activeDivisionId, 'teamsUpdated', Array.isArray(newTeams) ? newTeams.length : 0);
+    } catch (error) {
+      console.log('Error saving teams:', error);
     }
   };
 
@@ -93,13 +92,13 @@ const AssignTeamsScreen = () => {
             style: 'destructive',
             onPress: async () => {
               try {
-                await AsyncStorage.removeItem('eventResults');
+                await updateActiveDivisionData({ eventResults: [] });
                 setHasResults(false);
                 setNumTeams(value);
                 const planned = parseInt(value || '0');
                 if (!isNaN(planned) && planned > 0) {
-                  eventBus.emit('plannedTeamsUpdated', planned);
-                  try { await AsyncStorage.setItem('settings.teamConfig', JSON.stringify({ plannedTeams: planned })); } catch {}
+                  emitForDivision(activeDivisionId, 'plannedTeamsUpdated', planned);
+                  try { await setPlannedTeamCount(planned); } catch {}
                 }
               } catch (e) {
                 Alert.alert('Error', 'Failed to reset results.');
@@ -113,18 +112,8 @@ const AssignTeamsScreen = () => {
     setNumTeams(value);
     const planned = parseInt(value || '0');
     if (!isNaN(planned) && planned > 0) {
-      eventBus.emit('plannedTeamsUpdated', planned);
-      try { await AsyncStorage.setItem('settings.teamConfig', JSON.stringify({ plannedTeams: planned })); } catch {}
-    }
-  };
-
-  const saveTeams = async (newTeams) => {
-    try {
-      await AsyncStorage.setItem('teams', JSON.stringify(newTeams));
-      // Notify other screens (e.g., Settings) about team count changes
-      eventBus.emit('teamsUpdated', Array.isArray(newTeams) ? newTeams.length : 0);
-    } catch (error) {
-      console.log('Error saving teams:', error);
+      emitForDivision(activeDivisionId, 'plannedTeamsUpdated', planned);
+      try { await setPlannedTeamCount(planned); } catch {}
     }
   };
 
@@ -148,9 +137,7 @@ const AssignTeamsScreen = () => {
     const result = assignTeams(athletes, num);
     
     if (result.success) {
-      setTeams(result.teams);
-      saveTeams(result.teams);
-      eventBus.emit('teamsUpdated', result.teams.length);
+      persistTeamsAndNotify(result.teams);
       
       Alert.alert(
         'Teams Generated!', 
@@ -169,8 +156,7 @@ const AssignTeamsScreen = () => {
     const result = moveAthlete([...teams], athleteId, fromTeamId, toTeamId);
     
     if (result.success) {
-      setTeams(result.teams);
-      saveTeams(result.teams);
+      persistTeamsAndNotify(result.teams);
     } else {
       Alert.alert('Error', result.error);
     }
@@ -206,8 +192,7 @@ const AssignTeamsScreen = () => {
         : team
     );
 
-    setTeams(updatedTeams);
-    saveTeams(updatedTeams);
+    persistTeamsAndNotify(updatedTeams);
     setShowTeamEditor(false);
     setSelectedTeamForEdit(null);
   };
@@ -225,11 +210,14 @@ const AssignTeamsScreen = () => {
     setShowResetConfirm(true);
   };
 
-  const handleResetConfirm = () => {
+  const handleResetConfirm = async () => {
     console.log('Confirming reset teams');
-    setTeams([]);
-    saveTeams([]);
-    eventBus.emit('teamsUpdated', 0);
+    try {
+      await wipeTeams();
+      emitForDivision(activeDivisionId, 'teamsUpdated', 0);
+    } catch (error) {
+      console.log('Error resetting teams:', error);
+    }
     setShowResetConfirm(false);
   };
 
@@ -255,8 +243,7 @@ const AssignTeamsScreen = () => {
       athletes: []
     }));
 
-    setTeams(emptyTeams);
-    saveTeams(emptyTeams);
+    persistTeamsAndNotify(emptyTeams);
     setSelectedAthletes([]);
     setSelectedTeamForAssignment(emptyTeams[0].id); // Select first team by default
     
@@ -304,8 +291,7 @@ const AssignTeamsScreen = () => {
       athletes: [...updatedTeams[teamIndex].athletes, ...athletesToAssign]
     };
 
-    setTeams(updatedTeams);
-    saveTeams(updatedTeams);
+    persistTeamsAndNotify(updatedTeams);
 
     // Clear selection
     setSelectedAthletes([]);
@@ -469,8 +455,7 @@ const AssignTeamsScreen = () => {
       return updatedOpenTeam || team;
     });
 
-    setTeams(updatedTeams);
-    saveTeams(updatedTeams);
+    persistTeamsAndNotify(updatedTeams);
     
     Alert.alert(
       'Athletes Assigned!',

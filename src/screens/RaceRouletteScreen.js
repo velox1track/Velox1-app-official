@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -10,11 +10,13 @@ import {
   Pressable,
   Text
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import EventCard from '../components/EventCard';
-import { generateEventSequence, getDefaultEventPool } from '../lib/randomizer';
+import { generateEventSequence, getDefaultEventPool, getSequenceValidationSummary } from '../lib/randomizer';
 import { loadEventAssignments, isEventFullyAssigned, clearAllAssignments, generateLaneAssignments, rerollUnlockedLanes, getLaneAssignmentsForEvent, saveLaneAssignments } from '../lib/eventAssignments';
+import { getDivisionData, getEventPool, getRouletteSettings, getTeams, setPendingLaneEventIndex, updateDivisionData } from '../lib/storage';
+import { useDivision } from '../context/DivisionContext';
 import eventBus from '../lib/eventBus';
+import SequenceValidationModal from '../components/SequenceValidationModal';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
 import { ButtonPrimary, ButtonSecondary } from '../components';
@@ -23,6 +25,7 @@ import { scale } from '../utils/scale';
 import { useResponsive } from '../utils/useResponsive';
 
 const RaceRouletteScreen = ({ navigation }) => {
+  const { activeDivisionId } = useDivision();
   const { width, height } = useWindowDimensions();
   const responsive = useResponsive();
   const isLandscape = width > height;
@@ -46,159 +49,194 @@ const RaceRouletteScreen = ({ navigation }) => {
   // Event action modal (Edit Athletes vs Manage Lanes)
   const [showEventActionModal, setShowEventActionModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [sequenceValidationSummary, setSequenceValidationSummary] = useState(null);
+  const [showSequenceValidationModal, setShowSequenceValidationModal] = useState(false);
 
-  // Load saved state on component mount
-  useEffect(() => {
-    loadSavedState();
-  }, []);
+  const loadDivisionState = useCallback(async (divisionId = null) => {
+    const resolvedDivisionId = divisionId || activeDivisionId;
+    if (!resolvedDivisionId) return null;
 
-  // Reload assignments when screen comes into focus; auto-open lane modal if triggered by athlete save
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', async () => {
-      const [assignmentsData, teamsRaw, pendingIdx] = await Promise.all([
-        loadEventAssignments(),
-        AsyncStorage.getItem('teams'),
-        AsyncStorage.getItem('pendingLaneEventIndex'),
+    try {
+      const [division, assignmentsData, savedTeams, pool] = await Promise.all([
+        getDivisionData(resolvedDivisionId),
+        loadEventAssignments(resolvedDivisionId),
+        getTeams(resolvedDivisionId),
+        getEventPool(resolvedDivisionId),
       ]);
 
-      const freshTeams = teamsRaw ? JSON.parse(teamsRaw) : [];
+      setEventSequence(Array.isArray(division.eventSequence) ? division.eventSequence : []);
+      setRevealedIndex(parseInt(division.revealedIndex || '0', 10));
+      setEventPool(pool);
       setAssignments(assignmentsData);
-      setTeams(freshTeams);
+      setTeams(savedTeams);
 
-      if (pendingIdx !== null) {
-        await AsyncStorage.removeItem('pendingLaneEventIndex');
-        const idx = parseInt(pendingIdx, 10);
-        const eventRecord = assignmentsData.find(a => a.eventIndex === idx);
-        if (eventRecord) {
-          const existing = getLaneAssignmentsForEvent(assignmentsData, idx);
-          const lanes = existing ?? generateLaneAssignments(eventRecord, freshTeams);
-          if (lanes && lanes.length > 0) {
-            setPendingLaneAssignments(lanes);
-            setLaneEventIndex(idx);
-            setShowLaneModal(true);
-          }
-        }
-      }
+      return { division, assignmentsData, savedTeams };
+    } catch (error) {
+      console.log('Error loading division state:', error);
+      return null;
+    }
+  }, [activeDivisionId]);
+
+  const handlePendingLaneModal = useCallback(async (pendingIdx, assignmentsData, freshTeams, divisionId) => {
+    if (pendingIdx == null || pendingIdx === '' || !divisionId) return;
+
+    await setPendingLaneEventIndex(null, divisionId);
+
+    const idx = parseInt(pendingIdx, 10);
+    if (Number.isNaN(idx)) return;
+
+    const eventRecord = assignmentsData.find(a => a.eventIndex === idx);
+    if (!eventRecord) return;
+
+    const existing = getLaneAssignmentsForEvent(assignmentsData, idx);
+    const lanes = existing ?? generateLaneAssignments(eventRecord, freshTeams);
+    if (lanes && lanes.length > 0) {
+      setPendingLaneAssignments(lanes);
+      setLaneEventIndex(idx);
+      setShowLaneModal(true);
+    }
+  }, []);
+
+  const resetTransientUi = useCallback(() => {
+    setShowLaneModal(false);
+    setShowEventActionModal(false);
+    setShowResetConfirm(false);
+    setPendingLaneAssignments([]);
+    setLaneEventIndex(null);
+    setSelectedEvent(null);
+  }, []);
+
+  // Load division state on mount and whenever the active division changes
+  useEffect(() => {
+    if (!activeDivisionId) return;
+
+    resetTransientUi();
+    loadDivisionState().then((loaded) => {
+      if (!loaded) return;
+      const pendingIdx = loaded.division.pendingLaneEventIndex;
+      handlePendingLaneModal(pendingIdx, loaded.assignmentsData, loaded.savedTeams, activeDivisionId);
+    });
+  }, [activeDivisionId, loadDivisionState, handlePendingLaneModal, resetTransientUi]);
+
+  // Reload when screen comes into focus (e.g. returning from Assign Athletes)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', async () => {
+      if (!activeDivisionId) return;
+
+      const loaded = await loadDivisionState();
+      if (!loaded) return;
+
+      const pendingIdx = loaded.division.pendingLaneEventIndex;
+      await handlePendingLaneModal(pendingIdx, loaded.assignmentsData, loaded.savedTeams, activeDivisionId);
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, activeDivisionId, loadDivisionState, handlePendingLaneModal]);
 
   useEffect(() => {
-    // Only handle explicit settings updates, don't auto-regenerate on mount
-    const unsub = eventBus.on('settings.roulette.updated', async () => {
-      try {
-        const raw = await AsyncStorage.getItem('settings.roulette');
-        if (raw) {
-          const cfg = JSON.parse(raw);
-          const total = Number(cfg.totalEvents) || 5;
-          const relays = typeof cfg.numRelays === 'number' ? cfg.numRelays : 0;
-          const positions = Array.isArray(cfg.relayPositions) ? cfg.relayPositions.map(p => p - 1) : [];
-          const result = generateEventSequence(eventPool, total, relays, positions);
-          if (result.success) {
-            // Clear both event results and athlete assignments when settings change
-            await AsyncStorage.removeItem('eventResults');
-            await clearAllAssignments();
-            
-            setEventSequence(result.sequence);
-            setRevealedIndex(0);
-            setAssignments([]);
-            await AsyncStorage.setItem('eventSequence', JSON.stringify(result.sequence));
-            await AsyncStorage.setItem('revealedIndex', '0');
-          }
-        }
-      } catch {}
-    });
-    return () => {
-      unsub && unsub();
-    };
-  }, [eventPool]);
+    if (!activeDivisionId) return;
 
-  const loadSavedState = async () => {
-    try {
-      const savedSequence = await AsyncStorage.getItem('eventSequence');
-      const savedIndex = await AsyncStorage.getItem('revealedIndex');
-      const savedEventPool = await AsyncStorage.getItem('eventPool');
-      const savedTeams = await AsyncStorage.getItem('teams');
-      
-      if (savedSequence) {
-        setEventSequence(JSON.parse(savedSequence));
+    const unsubRoulette = eventBus.onForDivision(activeDivisionId, 'settings.roulette.updated', async () => {
+      try {
+        const [cfg, pool] = await Promise.all([
+          getRouletteSettings(activeDivisionId),
+          getEventPool(activeDivisionId),
+        ]);
+        setEventPool(pool);
+        const total = Number(cfg.totalEvents) || 5;
+        const relays = typeof cfg.numRelays === 'number' ? cfg.numRelays : 0;
+        const positions = Array.isArray(cfg.relayPositions) ? cfg.relayPositions.map(p => p - 1) : [];
+        const result = generateEventSequence(pool, total, relays, positions);
+
+        if (result.success) {
+          await updateDivisionData(activeDivisionId, {
+            eventResults: [],
+            eventAssignments: [],
+            eventSequence: result.sequence,
+            revealedIndex: '0',
+          });
+          await clearAllAssignments(activeDivisionId);
+
+          setEventSequence(result.sequence);
+          setRevealedIndex(0);
+          setAssignments([]);
+        }
+      } catch (error) {
+        console.log('Error applying roulette settings update:', error);
       }
-      if (savedIndex) {
-        setRevealedIndex(parseInt(savedIndex));
+    });
+
+    const unsubEventPool = eventBus.onForDivision(activeDivisionId, 'settings.eventPool.updated', async () => {
+      try {
+        setEventPool(await getEventPool(activeDivisionId));
+      } catch (error) {
+        console.log('Error refreshing event pool:', error);
       }
-      if (savedEventPool) {
-        setEventPool(JSON.parse(savedEventPool));
-      }
-      if (savedTeams) {
-        setTeams(JSON.parse(savedTeams));
-      }
-      
-      // Load assignments
-      const assignmentsData = await loadEventAssignments();
-      setAssignments(assignmentsData);
-      
-    } catch (error) {
-      console.log('Error loading saved state:', error);
-    }
-  };
+    });
+
+    return () => {
+      unsubRoulette && unsubRoulette();
+      unsubEventPool && unsubEventPool();
+    };
+  }, [activeDivisionId]);
 
   const saveState = async (sequence, index) => {
+    if (!activeDivisionId) return;
     try {
-      await AsyncStorage.setItem('eventSequence', JSON.stringify(sequence));
-      await AsyncStorage.setItem('revealedIndex', index.toString());
+      await updateDivisionData(activeDivisionId, {
+        eventSequence: sequence,
+        revealedIndex: String(index),
+      });
     } catch (error) {
       console.log('Error saving state:', error);
     }
   };
 
   const generateSequence = async () => {
+    if (!activeDivisionId) {
+      Alert.alert('No Division Selected', 'Select a division before generating a sequence.');
+      return;
+    }
+
     try {
       setIsLoading(true);
-      
-      // Load settings from Settings screen
-      const rouletteSettingsRaw = await AsyncStorage.getItem('settings.roulette');
-      let total = 5, relays = 1, positions = [];
-      
-      if (rouletteSettingsRaw) {
-        const cfg = JSON.parse(rouletteSettingsRaw);
-        total = Number(cfg.totalEvents) || 5;
-        relays = typeof cfg.numRelays === 'number' ? cfg.numRelays : 1;
-        positions = Array.isArray(cfg.relayPositions) ? cfg.relayPositions.map(p => p - 1) : [];
-        
-        // Debug logging
-        console.log('Settings loaded:', { total, relays, originalPositions: cfg.relayPositions, convertedPositions: positions });
-      }
-      
-      const result = generateEventSequence(eventPool, total, relays, positions);
-      
+
+      const [cfg, pool] = await Promise.all([
+        getRouletteSettings(activeDivisionId),
+        getEventPool(activeDivisionId),
+      ]);
+
+      const total = Number(cfg.totalEvents) || 5;
+      const relays = typeof cfg.numRelays === 'number' ? cfg.numRelays : 1;
+      const positions = Array.isArray(cfg.relayPositions) ? cfg.relayPositions.map(p => p - 1) : [];
+
+      const summary = getSequenceValidationSummary(pool, total, relays);
+      const result = generateEventSequence(pool, total, relays, positions);
+
       if (result.success) {
-        // Clear both event results and athlete assignments
-        await AsyncStorage.removeItem('eventResults');
-        await clearAllAssignments();
-        
+        await updateDivisionData(activeDivisionId, {
+          eventResults: [],
+          eventAssignments: [],
+          eventSequence: result.sequence,
+          revealedIndex: '0',
+        });
+        await clearAllAssignments(activeDivisionId);
+
         setEventSequence(result.sequence);
         setRevealedIndex(0);
-        await saveState(result.sequence, 0);
-        
-        // Reload assignments after clearing
         setAssignments([]);
-        
-        // Debug logging
-        console.log('Generated sequence:', result.sequence);
-        console.log('Relay positions used:', result.relayPositions);
-        console.log('Relay events in sequence:', result.sequence.filter((event, index) => result.relayPositions.includes(index)));
-        
+
         Alert.alert('Success', `New event sequence generated!\n\nRelays: ${relays}\nRelay positions: ${result.relayPositions.map(p => p + 1).join(', ')}\n\nAll previous assignments cleared.`);
       } else {
-        Alert.alert('Error', result.error);
+        setSequenceValidationSummary(summary);
+        setShowSequenceValidationModal(true);
       }
-      
+
       setIsLoading(false);
     } catch (error) {
       setIsLoading(false);
       console.error('Generate sequence error:', error);
-      Alert.alert('Error', 'Failed to generate sequence. Please check your settings.');
+      Alert.alert('Error', error?.message || 'Failed to generate sequence. Please check your settings.');
     }
   };
 
@@ -213,12 +251,23 @@ const RaceRouletteScreen = ({ navigation }) => {
     await saveState(eventSequence, newIndex);
     
     // Reload assignments after reveal
-    const assignmentsData = await loadEventAssignments();
+    const assignmentsData = await loadEventAssignments(activeDivisionId);
     setAssignments(assignmentsData);
   };
 
-  const handleAssignAthletes = (eventIndex, eventName) => {
-    if (teams.length === 0) {
+  const handleAssignAthletes = async (eventIndex, eventName) => {
+    if (eventIndex == null || !eventName) {
+      Alert.alert('Error', 'Please select a valid event.');
+      return;
+    }
+
+    if (!activeDivisionId) {
+      Alert.alert('Error', 'No active division selected.');
+      return;
+    }
+
+    const resolvedTeams = teams.length > 0 ? teams : await getTeams(activeDivisionId);
+    if (resolvedTeams.length === 0) {
       Alert.alert(
         'No Teams Found',
         'Please create teams first in the Assign Teams screen.',
@@ -228,6 +277,10 @@ const RaceRouletteScreen = ({ navigation }) => {
         ]
       );
       return;
+    }
+
+    if (resolvedTeams !== teams) {
+      setTeams(resolvedTeams);
     }
     
     navigation.navigate('AssignRunners', {
@@ -253,19 +306,25 @@ const RaceRouletteScreen = ({ navigation }) => {
   };
 
   const handleResetConfirm = async () => {
+    if (!activeDivisionId) return;
+
     try {
       console.log('Resetting sequence...');
       setShowResetConfirm(false);
-      
-      // Clear event results and athlete assignments
-      await AsyncStorage.removeItem('eventResults');
-      await clearAllAssignments();
-      
+
+      await updateDivisionData(activeDivisionId, {
+        eventResults: [],
+        eventAssignments: [],
+        eventSequence: [],
+        revealedIndex: '0',
+        pendingLaneEventIndex: null,
+      });
+      await clearAllAssignments(activeDivisionId);
+
       setEventSequence([]);
       setRevealedIndex(0);
       setAssignments([]);
-      await saveState([], 0);
-      
+
       console.log('Reset complete');
     } catch (error) {
       console.error('Error resetting sequence:', error);
@@ -324,7 +383,14 @@ const RaceRouletteScreen = ({ navigation }) => {
   };
 
   const handleSaveLanes = async () => {
-    const updated = await saveLaneAssignments(assignments, laneEventIndex, pendingLaneAssignments);
+    if (!activeDivisionId) return;
+
+    const updated = await saveLaneAssignments(
+      assignments,
+      laneEventIndex,
+      pendingLaneAssignments,
+      activeDivisionId
+    );
     setAssignments(updated);
     setShowLaneModal(false);
     setPendingLaneAssignments([]);
@@ -399,7 +465,7 @@ const RaceRouletteScreen = ({ navigation }) => {
 
             <View style={styles.progressInfo}>
               <MobileCaption style={styles.progressText}>
-                Configure settings then generate a sequence to begin
+                Configure settings, then generate a sequence to begin.
               </MobileCaption>
             </View>
           </Card>
@@ -673,6 +739,16 @@ const RaceRouletteScreen = ({ navigation }) => {
           </View>
         </View>
       )}
+
+      <SequenceValidationModal
+        visible={showSequenceValidationModal}
+        summary={sequenceValidationSummary}
+        onClose={() => setShowSequenceValidationModal(false)}
+        onGoToSettings={() => {
+          setShowSequenceValidationModal(false);
+          navigation.navigate('Settings');
+        }}
+      />
     </View>
   );
 };
@@ -961,6 +1037,8 @@ const styles = StyleSheet.create({
   progressText: {
     color: styleTokens.colors.textSecondary,
     opacity: 0.8,
+    textAlign: 'center',
+    marginTop: scale(6),
   },
   sequenceSection: {
     marginBottom: scale(24),

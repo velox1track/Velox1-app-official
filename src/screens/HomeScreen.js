@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, StyleSheet, ScrollView, Image, Platform } from 'react-native';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';

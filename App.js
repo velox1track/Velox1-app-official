@@ -16,8 +16,33 @@ import AssignTeamsScreen from './src/screens/AssignTeamsScreen';
 import AssignRunnersScreen from './src/screens/AssignRunnersScreen';
 import ScoreboardScreen from './src/screens/ScoreboardScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import { DivisionProvider } from './src/context/DivisionContext';
+import DivisionSwitcher from './src/components/DivisionSwitcher';
+import { styleTokens } from './src/theme';
+import { scale } from './src/utils/scale';
 
 const Stack = createStackNavigator();
+
+const withDivisionSwitcher = (ScreenComponent) => {
+  function ScreenWithDivisionSwitcher(props) {
+    return (
+      <View style={styles.screenShell}>
+        <View style={styles.switcherBar}>
+          <DivisionSwitcher />
+        </View>
+        <View style={styles.screenBody}>
+          <ScreenComponent {...props} />
+        </View>
+      </View>
+    );
+  }
+
+  ScreenWithDivisionSwitcher.displayName = `WithDivisionSwitcher(${
+    ScreenComponent.displayName || ScreenComponent.name || 'Screen'
+  })`;
+
+  return ScreenWithDivisionSwitcher;
+};
 
 export default function App() {
   const [fontsLoaded, setfontsLoaded] = useState(false);
@@ -51,73 +76,75 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="auto" />
-      <Stack.Navigator
-        initialRouteName="Home"
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: '#9FA7AE',
-          },
-          headerTintColor: '#080A0B',
-          headerTitleStyle: {
-            fontWeight: 'bold',
-            fontFamily: 'RobotoMono-Bold',
-          },
-          // On web the native back-arrow icon doesn't render in Safari.
-          // Provide a simple text arrow for web only; native keeps its default.
-          ...(Platform.OS === 'web' && {
-            headerLeft: ({ canGoBack, onPress }) =>
-              canGoBack ? (
-                <Pressable
-                  onPress={onPress}
-                  style={styles.webBackButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Go back"
-                >
-                  <Text style={styles.webBackArrow}>{'←'}</Text>
-                </Pressable>
-              ) : null,
-          }),
-        }}
-      >
-        <Stack.Screen
-          name="Home"
-          component={HomeScreen}
-          options={{ title: 'Velox 1 Race Roulette' }}
-        />
-        <Stack.Screen
-          name="RaceRoulette"
-          component={RaceRouletteScreen}
-          options={{ title: 'Race Roulette' }}
-        />
-        <Stack.Screen
-          name="TeamBuilder"
-          component={TeamBuilderScreen}
-          options={{ title: 'Team Builder' }}
-        />
-        <Stack.Screen
-          name="AssignTeams"
-          component={AssignTeamsScreen}
-          options={{ title: 'Assign Teams' }}
-        />
-        <Stack.Screen
-          name="AssignRunners"
-          component={AssignRunnersScreen}
-          options={{ title: 'Assign Athletes' }}
-        />
-        <Stack.Screen
-          name="Scoreboard"
-          component={ScoreboardScreen}
-          options={{ title: 'Scoreboard' }}
-        />
-        <Stack.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{ title: 'Settings' }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <DivisionProvider>
+      <NavigationContainer>
+        <StatusBar style="auto" />
+        <Stack.Navigator
+          initialRouteName="Home"
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: '#9FA7AE',
+            },
+            headerTintColor: '#080A0B',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+              fontFamily: 'RobotoMono-Bold',
+            },
+            // On web the native back-arrow icon doesn't render in Safari.
+            // Provide a simple text arrow for web only; native keeps its default.
+            ...(Platform.OS === 'web' && {
+              headerLeft: ({ canGoBack, onPress }) =>
+                canGoBack ? (
+                  <Pressable
+                    onPress={onPress}
+                    style={styles.webBackButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                  >
+                    <Text style={styles.webBackArrow}>{'←'}</Text>
+                  </Pressable>
+                ) : null,
+            }),
+          }}
+        >
+          <Stack.Screen
+            name="Home"
+            component={withDivisionSwitcher(HomeScreen)}
+            options={{ title: 'Velox 1 Race Roulette' }}
+          />
+          <Stack.Screen
+            name="RaceRoulette"
+            component={withDivisionSwitcher(RaceRouletteScreen)}
+            options={{ title: 'Race Roulette' }}
+          />
+          <Stack.Screen
+            name="TeamBuilder"
+            component={withDivisionSwitcher(TeamBuilderScreen)}
+            options={{ title: 'Team Builder' }}
+          />
+          <Stack.Screen
+            name="AssignTeams"
+            component={withDivisionSwitcher(AssignTeamsScreen)}
+            options={{ title: 'Assign Teams' }}
+          />
+          <Stack.Screen
+            name="AssignRunners"
+            component={withDivisionSwitcher(AssignRunnersScreen)}
+            options={{ title: 'Assign Athletes' }}
+          />
+          <Stack.Screen
+            name="Scoreboard"
+            component={withDivisionSwitcher(ScoreboardScreen)}
+            options={{ title: 'Scoreboard' }}
+          />
+          <Stack.Screen
+            name="Settings"
+            component={withDivisionSwitcher(SettingsScreen)}
+            options={{ title: 'Settings' }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </DivisionProvider>
   );
 }
 
@@ -143,5 +170,20 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: '#080A0B',
     fontWeight: '600',
+  },
+  screenShell: {
+    flex: 1,
+    backgroundColor: styleTokens.colors.background,
+  },
+  switcherBar: {
+    paddingHorizontal: scale(16),
+    paddingTop: scale(8),
+    paddingBottom: scale(4),
+    backgroundColor: '#9FA7AE',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  screenBody: {
+    flex: 1,
   },
 }); 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -8,9 +8,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Platform
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import AthleteForm from '../components/AthleteForm';
 import CSVImporter from '../components/CSVImporter';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
@@ -18,9 +18,10 @@ import { Card } from '../components/Card';
 import { ButtonPrimary, ButtonSecondary } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
+import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
 
 const TeamBuilderScreen = () => {
-  const [athletes, setAthletes] = useState([]);
+  const { athletes, isLoading, persistAthletes, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -32,41 +33,15 @@ const TeamBuilderScreen = () => {
   const [editTier, setEditTier] = useState('Med');
   const [editBestEvents, setEditBestEvents] = useState('');
 
-  // Load saved athletes on component mount
-  useEffect(() => {
-    loadAthletes();
-  }, []);
-
-  const loadAthletes = async () => {
-    try {
-      const savedAthletes = await AsyncStorage.getItem('athletes');
-      if (savedAthletes) {
-        setAthletes(JSON.parse(savedAthletes));
-      }
-    } catch (error) {
-      console.log('Error loading athletes:', error);
-    }
-  };
-
-  const saveAthletes = async (newAthletes) => {
-    try {
-      await AsyncStorage.setItem('athletes', JSON.stringify(newAthletes));
-    } catch (error) {
-      console.log('Error saving athletes:', error);
-    }
-  };
-
-  const addAthlete = (athlete) => {
+  const addAthlete = async (athlete) => {
     const newAthletes = [...athletes, athlete];
-    setAthletes(newAthletes);
-    saveAthletes(newAthletes);
+    await persistAthletes(newAthletes);
     Alert.alert('Success', `${athlete.name} added successfully!`);
   };
 
-  const importAthletes = (importedAthletes) => {
+  const importAthletes = async (importedAthletes) => {
     const newAthletes = [...athletes, ...importedAthletes];
-    setAthletes(newAthletes);
-    saveAthletes(newAthletes);
+    await persistAthletes(newAthletes);
   };
 
   const deleteAthlete = (athleteId) => {
@@ -75,11 +50,10 @@ const TeamBuilderScreen = () => {
     setShowDeleteConfirm(true);
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     console.log('Confirming delete for athlete:', athleteToDelete);
     const newAthletes = athletes.filter(a => a.id !== athleteToDelete);
-    setAthletes(newAthletes);
-    saveAthletes(newAthletes);
+    await persistAthletes(newAthletes);
     setShowDeleteConfirm(false);
     setAthleteToDelete(null);
   };
@@ -95,10 +69,9 @@ const TeamBuilderScreen = () => {
     setShowClearAllConfirm(true);
   };
 
-  const handleClearAllConfirm = () => {
+  const handleClearAllConfirm = async () => {
     console.log('Confirming clear all athletes');
-    setAthletes([]);
-    saveAthletes([]);
+    await wipeAthletes();
     setShowClearAllConfirm(false);
   };
 
@@ -116,7 +89,7 @@ const TeamBuilderScreen = () => {
     setShowEditModal(true);
   };
 
-  const handleEditSave = () => {
+  const handleEditSave = async () => {
     if (!editName.trim()) {
       Alert.alert('Error', 'Please enter an athlete name');
       return;
@@ -126,8 +99,7 @@ const TeamBuilderScreen = () => {
         ? { ...a, name: editName.trim(), gender: editGender, tier: editTier, bestEvents: editBestEvents.trim() || null }
         : a
     );
-    setAthletes(updatedAthletes);
-    saveAthletes(updatedAthletes);
+    await persistAthletes(updatedAthletes);
     setShowEditModal(false);
     setAthleteToEdit(null);
   };
@@ -147,6 +119,12 @@ const TeamBuilderScreen = () => {
 
   return (
     <View style={styles.container}>
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={styleTokens.colors.primary} />
+          <MobileBody style={styles.loadingText}>Loading athletes...</MobileBody>
+        </View>
+      ) : (
       <ScrollView 
         style={styles.scrollView} 
         contentContainerStyle={styles.scrollContent}
@@ -265,6 +243,7 @@ const TeamBuilderScreen = () => {
           )}
         </Card>
       </ScrollView>
+      )}
 
       {/* Clear All Confirmation Modal */}
       {showClearAllConfirm && (
@@ -393,6 +372,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: styleTokens.colors.background,
     overflow: 'hidden',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: scale(12),
+  },
+  loadingText: {
+    color: styleTokens.colors.textSecondary,
   },
   scrollView: {
     flex: 1,

@@ -3,9 +3,7 @@
  * Supports one-and-done enforcement and relay team selection
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const STORAGE_KEY = 'eventAssignments';
+import { getActiveDivisionId, getDivisionData, updateDivisionData } from './storage';
 
 /**
  * Data structure:
@@ -22,19 +20,30 @@ const STORAGE_KEY = 'eventAssignments';
  * ]
  */
 
-export const loadEventAssignments = async () => {
+const resolveDivisionId = async (divisionId) => {
+  if (divisionId) return divisionId;
+  const activeId = await getActiveDivisionId();
+  if (!activeId) {
+    throw new Error('No active division available for event assignments.');
+  }
+  return activeId;
+};
+
+export const loadEventAssignments = async (divisionId = null) => {
   try {
-    const data = await AsyncStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    const id = await resolveDivisionId(divisionId);
+    const data = await getDivisionData(id);
+    return Array.isArray(data.eventAssignments) ? data.eventAssignments : [];
   } catch (error) {
     console.log('Error loading event assignments:', error);
     return [];
   }
 };
 
-export const saveEventAssignments = async (assignments) => {
+export const saveEventAssignments = async (assignments, divisionId = null) => {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
+    const id = await resolveDivisionId(divisionId);
+    await updateDivisionData(id, { eventAssignments: assignments });
     return true;
   } catch (error) {
     console.log('Error saving event assignments:', error);
@@ -46,7 +55,15 @@ export const getAssignmentForEvent = (assignments, eventIndex) => {
   return assignments.find(a => a.eventIndex === eventIndex);
 };
 
-export const setAssignmentForEvent = async (assignments, eventIndex, eventName, isRelay, teamAssignments, laneAssignments = null) => {
+export const setAssignmentForEvent = async (
+  assignments,
+  eventIndex,
+  eventName,
+  isRelay,
+  teamAssignments,
+  laneAssignments = null,
+  divisionId = null
+) => {
   const newAssignment = {
     eventIndex,
     eventName,
@@ -63,7 +80,7 @@ export const setAssignmentForEvent = async (assignments, eventIndex, eventName, 
   const filtered = assignments.filter(a => a.eventIndex !== eventIndex);
   const updated = [...filtered, newAssignment].sort((a, b) => a.eventIndex - b.eventIndex);
   
-  const success = await saveEventAssignments(updated);
+  const success = await saveEventAssignments(updated, divisionId);
   return success ? updated : assignments;
 };
 
@@ -159,14 +176,8 @@ export const getAssignmentStats = (assignments, teams) => {
   };
 };
 
-export const clearAllAssignments = async () => {
-  try {
-    await AsyncStorage.removeItem(STORAGE_KEY);
-    return true;
-  } catch (error) {
-    console.log('Error clearing assignments:', error);
-    return false;
-  }
+export const clearAllAssignments = async (divisionId = null) => {
+  return saveEventAssignments([], divisionId);
 };
 
 export const isRelayEvent = (eventName) => {
@@ -287,11 +298,11 @@ export const getLaneAssignmentsForEvent = (assignments, eventIndex) => {
 /**
  * Persists lane assignments onto an existing event record.
  */
-export const saveLaneAssignments = async (assignments, eventIndex, laneAssignments) => {
+export const saveLaneAssignments = async (assignments, eventIndex, laneAssignments, divisionId = null) => {
   const updated = assignments.map(a =>
     a.eventIndex === eventIndex ? { ...a, laneAssignments } : a
   );
-  const success = await saveEventAssignments(updated);
+  const success = await saveEventAssignments(updated, divisionId);
   return success ? updated : assignments;
 };
 
