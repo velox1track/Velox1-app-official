@@ -82,7 +82,7 @@ const TeamList = ({ teams, onMoveAthlete, onColorChange, editable = false }) => 
                   {team.athletes.map((athlete) => (
                     <View key={athlete.id} style={styles.athleteItem}>
                       <View style={styles.athleteInfo}>
-                        <MobileBody style={styles.athleteName}>{athlete.name}</MobileBody>
+                        <MobileBody style={styles.athleteName} numberOfLines={1} ellipsizeMode="tail">{athlete.name}</MobileBody>
                         <View style={styles.badgeContainer}>
                           {athlete.gender && (
                             <Text style={athlete.gender === 'Male' ? styles.genderMaleLabel : styles.genderFemaleLabel}>
@@ -272,17 +272,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: scale(4),
     gap: scale(8),
-    flexWrap: 'wrap',
   },
   athleteName: {
-    color: styleTokens.colors.textPrimary,
     flex: 1,
     flexShrink: 1,
+    color: styleTokens.colors.textPrimary,
+    fontSize: scale(16),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    lineHeight: scale(22),
+    textTransform: 'none',
   },
   badgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(6),
+    flexShrink: 0,
   },
   tierBadge: {
     paddingHorizontal: scale(8),

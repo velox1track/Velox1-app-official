@@ -113,6 +113,28 @@ export const getUsedAthleteIdsExcludingEvent = (assignments, excludeEventIndex) 
   return Array.from(usedIds);
 };
 
+/**
+ * Like getUsedAthleteIdsExcludingEvent, but only considers assignments whose
+ * isRelay flag matches the given type. Used to enforce the "1 individual event
+ * + 1 relay event" eligibility rule (each bucket — individual vs relay — is
+ * tracked independently, so an athlete can be used in one of each).
+ */
+export const getUsedAthleteIdsExcludingEventByType = (assignments, excludeEventIndex, isRelay) => {
+  const usedIds = new Set();
+  assignments
+    .filter(a => a.eventIndex !== excludeEventIndex && !!a.isRelay === !!isRelay)
+    .forEach(assignment => {
+      assignment.assignments.forEach(teamAssignment => {
+        teamAssignment.athleteIds.forEach(athleteId => {
+          if (athleteId !== 'NOT_RUNNING') {
+            usedIds.add(athleteId);
+          }
+        });
+      });
+    });
+  return Array.from(usedIds);
+};
+
 export const getUsedAthleteIdsUpToEvent = (assignments, eventIndex) => {
   const usedIds = new Set();
   assignments

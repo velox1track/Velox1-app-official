@@ -50,7 +50,7 @@ const deepClone = (value) => JSON.parse(JSON.stringify(value));
 
 const mergeSettings = (currentSettings = {}, partialSettings = {}) => {
   const next = { ...currentSettings, ...partialSettings };
-  ['teamConfig', 'roulette', 'scoring', 'infractions'].forEach((key) => {
+  ['teamConfig', 'roulette', 'scoring', 'infractions', 'athleteEligibility'].forEach((key) => {
     if (partialSettings[key]) {
       next[key] = { ...(currentSettings[key] || {}), ...partialSettings[key] };
     }
@@ -332,6 +332,24 @@ export const saveRouletteSettings = async (roulette, divisionId = null) => {
   const id = await resolveDivisionId(divisionId);
   const merged = await updateDivisionData(id, { settings: { roulette } });
   return normalizeRouletteSettings(merged.settings?.roulette || roulette);
+};
+
+const normalizeEligibilitySettings = (eligibility = {}) => ({
+  allowIndividualPlusRelay: !!eligibility.allowIndividualPlusRelay,
+});
+
+/** Read athlete eligibility settings for a division (defaults to active). */
+export const getEligibilitySettings = async (divisionId = null) => {
+  const id = await resolveDivisionId(divisionId);
+  const data = await getDivisionData(id);
+  return normalizeEligibilitySettings(data.settings?.athleteEligibility);
+};
+
+/** Save athlete eligibility settings for a division (defaults to active). */
+export const saveEligibilitySettings = async (athleteEligibility, divisionId = null) => {
+  const id = await resolveDivisionId(divisionId);
+  const merged = await updateDivisionData(id, { settings: { athleteEligibility } });
+  return normalizeEligibilitySettings(merged.settings?.athleteEligibility || athleteEligibility);
 };
 
 /** Read scoring settings for a division (defaults to active). */

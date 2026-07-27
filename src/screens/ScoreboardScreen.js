@@ -1142,7 +1142,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: scale(24),
-    paddingBottom: scale(40),
+    paddingBottom: scale(88),
     gap: scale(16),
   },
   sectionCard: {
@@ -1380,9 +1380,11 @@ const styles = StyleSheet.create({
     borderColor: styleTokens.colors.primary,
   },
   athleteChipText: {
-    color: styleTokens.colors.textPrimary,
+    color: styleTokens.colors.white,
     fontSize: scale(9),
     fontWeight: '600',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    textTransform: 'none',
   },
   statusBadge: {
     paddingHorizontal: scale(8),

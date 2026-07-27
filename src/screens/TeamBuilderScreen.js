@@ -214,7 +214,7 @@ const TeamBuilderScreen = () => {
               {athletes.map((athlete) => (
                 <View key={athlete.id} style={styles.athleteCard}>
                   <View style={styles.athleteInfo}>
-                    <MobileH2 style={styles.athleteName} numberOfLines={2}>{athlete.name}</MobileH2>
+                    <Text style={styles.athleteName} numberOfLines={1} ellipsizeMode="tail">{athlete.name}</Text>
                     <View style={styles.badgeContainer}>
                       {athlete.gender && (
                         <Text style={athlete.gender === 'Male' ? styles.genderMale : styles.genderFemale}>
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: scale(24),
-    paddingBottom: scale(40),
+    paddingBottom: scale(88),
     gap: scale(16),
   },
   sectionCard: {
@@ -571,17 +571,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: scale(8),
     gap: scale(8),
-    flexWrap: 'wrap',
   },
   athleteName: {
-    color: styleTokens.colors.textPrimary,
     flex: 1,
     flexShrink: 1,
+    color: styleTokens.colors.textPrimary,
+    fontSize: scale(16),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    lineHeight: scale(22),
   },
   badgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(6),
+    flexShrink: 0,
   },
   genderMale: {
     color: 'rgb(59, 130, 246)',

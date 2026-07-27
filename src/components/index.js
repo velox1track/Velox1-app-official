@@ -18,3 +18,4 @@ export { default as AthleteForm } from './AthleteForm';
 export { default as CSVImporter } from './CSVImporter';
 export { default as EventCard } from './EventCard';
 export { default as TeamList } from './TeamList';
+export { default as SegmentedToggle } from './SegmentedToggle';

@@ -673,7 +673,7 @@ const AssignTeamsScreen = () => {
                       )}
                     </View>
                     <View style={styles.athleteSelectionInfo}>
-                      <MobileBody style={styles.athleteSelectionName}>{athlete.name}</MobileBody>
+                      <MobileBody style={styles.athleteSelectionName} numberOfLines={1} ellipsizeMode="tail">{athlete.name}</MobileBody>
                       <View style={styles.athleteSelectionBadges}>
                         {athlete.gender && (
                           <Text style={athlete.gender === 'Male' ? styles.genderMale : styles.genderFemale}>
@@ -930,7 +930,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: scale(24),
-    paddingBottom: scale(40),
+    paddingBottom: scale(88),
     gap: scale(16),
   },
   sectionCard: {
@@ -1469,12 +1469,18 @@ const styles = StyleSheet.create({
   athleteSelectionName: {
     color: styleTokens.colors.textPrimary,
     fontSize: scale(16),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    lineHeight: scale(22),
     flex: 1,
+    flexShrink: 1,
+    textTransform: 'none',
   },
   athleteSelectionBadges: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(6),
+    flexShrink: 0,
   },
   genderMale: {
     color: 'rgb(59, 130, 246)',

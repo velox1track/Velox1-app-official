@@ -24,12 +24,14 @@ import SequenceValidationModal from '../components/SequenceValidationModal';
 import {
   getActiveDivisionData,
   getAthletes,
+  getEligibilitySettings,
   getEventPool,
   getInfractionsSettings,
   getPlannedTeams,
   getRouletteSettings,
   getScoringSettings,
   getTeams,
+  saveEligibilitySettings as saveEligibilitySettingsToStorage,
   saveEventPool as saveEventPoolToStorage,
   saveInfractionsSettings as saveInfractionsSettingsToStorage,
   savePlannedTeams as savePlannedTeamsToStorage,
@@ -70,6 +72,7 @@ const SettingsScreen = ({ navigation }) => {
   // Race Roulette sequence settings
   const [rouletteSettings, setRouletteSettings] = useState({ totalEvents: 5, numRelays: 1, relayPositions: [] });
   const [isSavingRoulette, setIsSavingRoulette] = useState(false);
+  const [athleteEligibilitySettings, setAthleteEligibilitySettings] = useState({ allowIndividualPlusRelay: false });
 
   // Scoring settings (places -> points)
   const [scoringSettings, setScoringSettings] = useState({ places: [
@@ -204,6 +207,7 @@ const SettingsScreen = ({ navigation }) => {
         roulette,
         scoringBase,
         infractions,
+        eligibility,
       ] = await Promise.all([
         getActiveDivisionData(),
         getAthletes(),
@@ -213,6 +217,7 @@ const SettingsScreen = ({ navigation }) => {
         getRouletteSettings(),
         getScoringSettings(),
         getInfractionsSettings(),
+        getEligibilitySettings(),
       ]);
       const eventSequence = Array.isArray(division.eventSequence) ? division.eventSequence : [];
       const eventResults = Array.isArray(division.eventResults) ? division.eventResults : [];
@@ -238,6 +243,8 @@ const SettingsScreen = ({ navigation }) => {
         items: infractions.items,
         activePresetId: infractions.activePresetId || 'custom',
       });
+
+      setAthleteEligibilitySettings(eligibility);
     } catch (error) {
       console.log('Error loading division settings:', error);
     }
@@ -254,6 +261,20 @@ const SettingsScreen = ({ navigation }) => {
       emitForDivision(activeDivisionId, 'settings.eventPool.updated');
     } catch (error) {
       console.log('Error saving event pool:', error);
+    }
+  };
+
+  const toggleAllowIndividualPlusRelay = async () => {
+    const next = { allowIndividualPlusRelay: !athleteEligibilitySettings.allowIndividualPlusRelay };
+    setAthleteEligibilitySettings(next);
+    try {
+      const saved = await saveEligibilitySettingsToStorage(next);
+      setAthleteEligibilitySettings(saved);
+      emitForDivision(activeDivisionId, 'settings.athleteEligibility.updated');
+    } catch (error) {
+      console.log('Error saving athlete eligibility settings:', error);
+      // Revert on failure so the toggle reflects what's actually persisted.
+      setAthleteEligibilitySettings((prev) => ({ allowIndividualPlusRelay: !prev.allowIndividualPlusRelay }));
     }
   };
 
@@ -905,6 +926,37 @@ const SettingsScreen = ({ navigation }) => {
           )}
         </Card>
 
+        {/* Athlete Eligibility (Roster Rules) */}
+        <Card style={[styles.section, isLandscape && styles.sectionLandscape]}>
+          <MobileH2 style={[styles.sectionTitle, isLandscape && styles.sectionTitleLandscape]}>Roster Rules</MobileH2>
+
+          <View style={styles.eligibilityRow}>
+            <View style={styles.eligibilityTextCol}>
+              <MobileBody style={styles.eligibilityLabel}>Allow Individual + Relay</MobileBody>
+              <MobileCaption style={styles.eligibilityHelp}>
+                {athleteEligibilitySettings.allowIndividualPlusRelay
+                  ? 'On: each athlete may compete in one individual event AND one relay.'
+                  : 'Off: each athlete may compete in one event total (current default).'}
+              </MobileCaption>
+            </View>
+            <Pressable
+              style={[
+                styles.eligibilityToggle,
+                athleteEligibilitySettings.allowIndividualPlusRelay && styles.eligibilityToggleActive
+              ]}
+              onPress={toggleAllowIndividualPlusRelay}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: athleteEligibilitySettings.allowIndividualPlusRelay }}
+              accessibilityLabel="Allow individual plus relay eligibility"
+            >
+              <View style={[
+                styles.eligibilityToggleCircle,
+                athleteEligibilitySettings.allowIndividualPlusRelay && styles.eligibilityToggleCircleActive
+              ]} />
+            </Pressable>
+          </View>
+        </Card>
+
         {/* Race Roulette Sequence Settings */}
         <Card style={[styles.section, isLandscape && styles.sectionLandscape]}>
           <MobileH2 style={[styles.sectionTitle, isLandscape && styles.sectionTitleLandscape]}>Race Roulette Sequence</MobileH2>
@@ -1416,11 +1468,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: scale(24),
-    paddingBottom: scale(40),
+    paddingBottom: scale(88),
   },
   scrollContentLandscape: {
     paddingHorizontal: scale(32),
-    paddingVertical: scale(20),
+    paddingTop: scale(20),
+    paddingBottom: scale(88),
   },
   section: {
     marginBottom: scale(24),
@@ -1682,6 +1735,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: scale(4),
+  },
+  eligibilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scale(12),
+  },
+  eligibilityTextCol: {
+    flex: 1,
+    gap: scale(4),
+  },
+  eligibilityLabel: {
+    color: styleTokens.colors.textPrimary,
+    fontWeight: '600',
+  },
+  eligibilityHelp: {
+    color: styleTokens.colors.textSecondary,
+  },
+  eligibilityToggle: {
+    width: scale(44),
+    height: scale(24),
+    borderRadius: scale(12),
+    backgroundColor: styleTokens.colors.disabled,
+    padding: scale(2),
+    justifyContent: 'center',
+  },
+  eligibilityToggleActive: {
+    backgroundColor: styleTokens.colors.primary,
+    alignItems: 'flex-end',
+  },
+  eligibilityToggleCircle: {
+    width: scale(20),
+    height: scale(20),
+    borderRadius: scale(10),
+    backgroundColor: styleTokens.colors.white,
+  },
+  eligibilityToggleCircleActive: {
+    backgroundColor: styleTokens.colors.white,
   },
   lockedBadge: {
     backgroundColor: 'rgba(159, 167, 174, 0.3)',

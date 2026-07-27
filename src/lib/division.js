@@ -87,6 +87,11 @@ export const createDefaultSettings = (plannedTeams = DEFAULT_PLANNED_TEAMS) => (
     items: deepClone(DEFAULT_INFRACTION_ITEMS),
     activePresetId: 'default',
   },
+  // Off by default: an athlete may only compete in one event total. When
+  // enabled, an athlete may compete in one individual event AND one relay.
+  athleteEligibility: {
+    allowIndividualPlusRelay: false,
+  },
 });
 
 /**

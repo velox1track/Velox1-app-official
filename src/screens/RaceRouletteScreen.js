@@ -19,10 +19,33 @@ import eventBus from '../lib/eventBus';
 import SequenceValidationModal from '../components/SequenceValidationModal';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
-import { ButtonPrimary, ButtonSecondary } from '../components';
+import { ButtonPrimary, ButtonSecondary, SegmentedToggle } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 import { useResponsive } from '../utils/useResponsive';
+
+// Category labels for the Manual Sequence Builder — mirrors the categories
+// configured in Settings → Event Configuration.
+const MANUAL_CATEGORY_LABELS = {
+  shortSprints: 'Short Sprints',
+  middleDistances: 'Middle Distances',
+  longDistances: 'Long Distances',
+  relays: 'Relays',
+  technicalEvents: 'Specialty Events',
+};
+
+const MANUAL_CATEGORY_ORDER = Object.keys(MANUAL_CATEGORY_LABELS);
+
+const getEnabledManualCategories = (pool) => {
+  return MANUAL_CATEGORY_ORDER.filter(
+    (key) => Array.isArray(pool?.[key]) && pool[key].some((event) => event.enabled)
+  );
+};
+
+const getEnabledManualEvents = (pool, category) => {
+  if (!category || !Array.isArray(pool?.[category])) return [];
+  return pool[category].filter((event) => event.enabled).map((event) => event.name);
+};
 
 const RaceRouletteScreen = ({ navigation }) => {
   const { activeDivisionId } = useDivision();
@@ -30,6 +53,7 @@ const RaceRouletteScreen = ({ navigation }) => {
   const responsive = useResponsive();
   const isLandscape = width > height;
   
+  const [sequenceMode, setSequenceMode] = useState('roulette'); // 'roulette' or 'manual'
   const [eventPool, setEventPool] = useState(getDefaultEventPool());
   const [totalEvents, setTotalEvents] = useState('5');
   const [numRelays, setNumRelays] = useState('1');
@@ -51,6 +75,95 @@ const RaceRouletteScreen = ({ navigation }) => {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [sequenceValidationSummary, setSequenceValidationSummary] = useState(null);
   const [showSequenceValidationModal, setShowSequenceValidationModal] = useState(false);
+
+  // Manual Sequence Builder state
+  const [manualDraftSequence, setManualDraftSequence] = useState([]);
+  const [manualSelectedCategory, setManualSelectedCategory] = useState(null);
+  const [manualSelectedEvent, setManualSelectedEvent] = useState(null);
+
+  const enabledManualCategories = getEnabledManualCategories(eventPool);
+  const manualEventsForCategory = getEnabledManualEvents(eventPool, manualSelectedCategory);
+
+  // Keep the selected category valid as the (division-scoped) event pool changes
+  useEffect(() => {
+    if (enabledManualCategories.length === 0) {
+      setManualSelectedCategory(null);
+      return;
+    }
+    if (!manualSelectedCategory || !enabledManualCategories.includes(manualSelectedCategory)) {
+      setManualSelectedCategory(enabledManualCategories[0]);
+    }
+  }, [eventPool]);
+
+  // Keep the selected event valid as the category (or pool) changes
+  useEffect(() => {
+    if (manualEventsForCategory.length === 0) {
+      setManualSelectedEvent(null);
+      return;
+    }
+    if (!manualSelectedEvent || !manualEventsForCategory.includes(manualSelectedEvent)) {
+      setManualSelectedEvent(manualEventsForCategory[0]);
+    }
+  }, [manualSelectedCategory, eventPool]);
+
+  const isManualSelectedEventAlreadyAdded = !!manualSelectedEvent && manualDraftSequence.includes(manualSelectedEvent);
+
+  const handleAddManualEvent = () => {
+    if (!manualSelectedEvent || manualDraftSequence.includes(manualSelectedEvent)) return;
+    const eventToAdd = manualSelectedEvent;
+    setManualDraftSequence((prev) => [...prev, eventToAdd]);
+
+    // Auto-advance to the next not-yet-added event in this category, matching
+    // the "skip past used items" feel of athlete selection elsewhere in the app.
+    const nextAvailable = manualEventsForCategory.find(
+      (name) => name !== eventToAdd && !manualDraftSequence.includes(name)
+    );
+    if (nextAvailable) {
+      setManualSelectedEvent(nextAvailable);
+    }
+  };
+
+  const handleRemoveManualDraftEvent = (index) => {
+    setManualDraftSequence((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveManualSequence = async () => {
+    if (!activeDivisionId) {
+      Alert.alert('No Division Selected', 'Select a division before saving a sequence.');
+      return;
+    }
+
+    if (manualDraftSequence.length === 0) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      // Mirrors generateSequence's success path exactly, so a manually-built
+      // sequence is stored in the identical shape/schema as a randomized one —
+      // same reset of results/assignments, same revealedIndex, same clear call.
+      await updateDivisionData(activeDivisionId, {
+        eventResults: [],
+        eventAssignments: [],
+        eventSequence: manualDraftSequence,
+        revealedIndex: '0',
+      });
+      await clearAllAssignments(activeDivisionId);
+
+      setEventSequence(manualDraftSequence);
+      setRevealedIndex(0);
+      setAssignments([]);
+      setManualDraftSequence([]);
+
+      setIsLoading(false);
+      Alert.alert('Success', `Manual sequence saved with ${manualDraftSequence.length} event(s)!`);
+    } catch (error) {
+      setIsLoading(false);
+      console.error('Save manual sequence error:', error);
+      Alert.alert('Error', error?.message || 'Failed to save the manual sequence. Please try again.');
+    }
+  };
 
   const loadDivisionState = useCallback(async (divisionId = null) => {
     const resolvedDivisionId = divisionId || activeDivisionId;
@@ -413,10 +526,23 @@ const RaceRouletteScreen = ({ navigation }) => {
         ]}
         showsVerticalScrollIndicator={true}
       >
-        {/* Controls removed - sequence comes from Settings */}
+        {/* Mode Toggle */}
+        {eventSequence.length === 0 && (
+          <Card style={styles.modeToggleCard}>
+            <SegmentedToggle
+              options={[
+                { value: 'roulette', label: 'Roulette Mode' },
+                { value: 'manual', label: 'Manual Mode' },
+              ]}
+              value={sequenceMode}
+              onChange={setSequenceMode}
+              accessibilityLabel="Sequence creation mode"
+            />
+          </Card>
+        )}
 
         {/* No Sequence Section */}
-        {eventSequence.length === 0 && (
+        {eventSequence.length === 0 && sequenceMode === 'roulette' && (
           <Card style={[styles.revealSection, isLandscape && styles.revealSectionLandscape]}>
             <MobileH2 style={[
               styles.sectionTitle, 
@@ -468,6 +594,141 @@ const RaceRouletteScreen = ({ navigation }) => {
                 Configure settings, then generate a sequence to begin.
               </MobileCaption>
             </View>
+          </Card>
+        )}
+
+        {/* Manual Sequence Builder Section */}
+        {eventSequence.length === 0 && sequenceMode === 'manual' && (
+          <Card style={[styles.revealSection, isLandscape && styles.revealSectionLandscape]}>
+            <MobileH2 style={[
+              styles.sectionTitle,
+              isLandscape && styles.sectionTitleLandscape,
+              width < 400 && styles.sectionTitleSmall,
+              width < 350 && styles.sectionTitleTiny
+            ]}>
+              Manual Sequence Builder
+            </MobileH2>
+
+            {enabledManualCategories.length === 0 ? (
+              <View style={styles.progressInfo}>
+                <MobileCaption style={styles.progressText}>
+                  No event categories are enabled. Enable some in Settings → Event Configuration first.
+                </MobileCaption>
+              </View>
+            ) : (
+              <>
+                {/* Category Picker */}
+                <View style={styles.manualBuilderSection}>
+                  <MobileCaption style={styles.manualBuilderLabel}>Category</MobileCaption>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.manualChipRow}
+                  >
+                    {enabledManualCategories.map((catKey) => {
+                      const isActive = manualSelectedCategory === catKey;
+                      return (
+                        <Pressable
+                          key={catKey}
+                          style={[styles.manualChip, isActive && styles.manualChipActive]}
+                          onPress={() => setManualSelectedCategory(catKey)}
+                        >
+                          <Text style={[styles.manualChipText, isActive && styles.manualChipTextActive]}>
+                            {MANUAL_CATEGORY_LABELS[catKey]}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {/* Event Picker */}
+                <View style={styles.manualBuilderSection}>
+                  <MobileCaption style={styles.manualBuilderLabel}>Event</MobileCaption>
+                  {manualEventsForCategory.length === 0 ? (
+                    <MobileCaption style={styles.progressText}>
+                      No enabled events in this category.
+                    </MobileCaption>
+                  ) : (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.manualChipRow}
+                    >
+                      {manualEventsForCategory.map((eventName) => {
+                        const isActive = manualSelectedEvent === eventName;
+                        const isAlreadyAdded = manualDraftSequence.includes(eventName);
+                        return (
+                          <Pressable
+                            key={eventName}
+                            style={[
+                              styles.manualChip,
+                              isActive && styles.manualChipActive,
+                              isAlreadyAdded && styles.manualChipAdded,
+                            ]}
+                            onPress={() => setManualSelectedEvent(eventName)}
+                            disabled={isAlreadyAdded}
+                          >
+                            <Text style={[
+                              styles.manualChipText,
+                              isActive && styles.manualChipTextActive,
+                              isAlreadyAdded && styles.manualChipTextAdded,
+                            ]}>
+                              {eventName}{isAlreadyAdded ? ' ✓' : ''}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+
+                <ButtonPrimary
+                  style={styles.manualAddButton}
+                  onPress={handleAddManualEvent}
+                  disabled={!manualSelectedEvent || isManualSelectedEventAlreadyAdded}
+                >
+                  {isManualSelectedEventAlreadyAdded ? 'Already in Sequence' : 'Add to Sequence'}
+                </ButtonPrimary>
+
+                {/* Draft List */}
+                {manualDraftSequence.length > 0 && (
+                  <View style={styles.manualDraftSection}>
+                    <MobileCaption style={styles.manualBuilderLabel}>
+                      Sequence Preview ({manualDraftSequence.length} {manualDraftSequence.length === 1 ? 'event' : 'events'})
+                    </MobileCaption>
+
+                    <View style={styles.manualDraftList}>
+                      {manualDraftSequence.map((eventName, index) => (
+                        <View key={`${eventName}-${index}`} style={styles.manualDraftRow}>
+                          <View style={styles.manualDraftIndexBadge}>
+                            <Text style={styles.manualDraftIndexText}>{index + 1}</Text>
+                          </View>
+                          <MobileBody style={styles.manualDraftEventName} numberOfLines={1}>
+                            {eventName}
+                          </MobileBody>
+                          <Pressable
+                            style={styles.manualDraftRemoveBtn}
+                            onPress={() => handleRemoveManualDraftEvent(index)}
+                            accessibilityLabel={`Remove ${eventName} from sequence`}
+                          >
+                            <Text style={styles.manualDraftRemoveBtnText}>✕</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+
+                    <ButtonPrimary
+                      style={styles.manualSaveButton}
+                      onPress={handleSaveManualSequence}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? 'Saving...' : 'Save Sequence'}
+                    </ButtonPrimary>
+                  </View>
+                )}
+              </>
+            )}
           </Card>
         )}
 
@@ -765,6 +1026,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: scale(24),
+    paddingBottom: scale(88),
   },
   scrollContentCentered: {
     alignItems: 'center',
@@ -877,6 +1139,127 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     minWidth: scale(200),
     maxWidth: '100%', // Prevents button from extending beyond container
+  },
+  modeToggleCard: {
+    marginBottom: scale(24),
+    padding: scale(12),
+    minHeight: scale(64),
+    justifyContent: 'center',
+  },
+
+  // ─── Manual Sequence Builder Styles ──────────────────────────────────────────
+  manualBuilderSection: {
+    marginBottom: scale(16),
+    width: '100%',
+  },
+  manualBuilderLabel: {
+    color: styleTokens.colors.textSecondary,
+    marginBottom: scale(10),
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: styleTokens.typography.letterSpacing.wide,
+    fontSize: scale(11),
+  },
+  manualChipRow: {
+    flexDirection: 'row',
+    gap: scale(10),
+    paddingRight: scale(4),
+  },
+  manualChip: {
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(16),
+    borderRadius: scale(20),
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  manualChipActive: {
+    backgroundColor: styleTokens.colors.primary,
+    borderColor: styleTokens.colors.primary,
+  },
+  manualChipAdded: {
+    opacity: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  manualChipText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: scale(13),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    textTransform: 'uppercase',
+  },
+  manualChipTextActive: {
+    color: styleTokens.colors.textPrimary,
+  },
+  manualChipTextAdded: {
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  manualAddButton: {
+    marginTop: scale(4),
+    marginBottom: scale(4),
+  },
+  manualDraftSection: {
+    marginTop: scale(20),
+    paddingTop: scale(20),
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    width: '100%',
+  },
+  manualDraftList: {
+    gap: scale(8),
+    marginBottom: scale(16),
+  },
+  manualDraftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(12),
+    borderRadius: scale(8),
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    gap: scale(10),
+  },
+  manualDraftIndexBadge: {
+    width: scale(26),
+    height: scale(26),
+    borderRadius: scale(13),
+    backgroundColor: 'rgba(100, 226, 211, 0.2)',
+    borderWidth: 1,
+    borderColor: styleTokens.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualDraftIndexText: {
+    color: styleTokens.colors.primary,
+    fontSize: scale(12),
+    fontWeight: '800',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+  },
+  manualDraftEventName: {
+    flex: 1,
+    color: styleTokens.colors.white,
+    fontSize: scale(14),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    textTransform: 'none',
+  },
+  manualDraftRemoveBtn: {
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(14),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 100, 100, 0.15)',
+  },
+  manualDraftRemoveBtnText: {
+    color: '#ff6464',
+    fontSize: scale(13),
+    fontWeight: '800',
+  },
+  manualSaveButton: {
+    alignSelf: 'center',
+    minWidth: scale(200),
   },
   revealSection: {
     marginBottom: scale(24),
@@ -1379,6 +1762,10 @@ const styles = StyleSheet.create({
     flex: 1,
     color: styleTokens.colors.white,
     fontSize: scale(14),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    lineHeight: scale(20),
+    textTransform: 'none',
   },
   laneRerollRow: {
     flexDirection: 'row',
@@ -1402,6 +1789,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     fontFamily: styleTokens.typography.fonts.robotoMono,
     letterSpacing: styleTokens.typography.letterSpacing.wide,
+    textAlign: 'center',
   },
   rerollAllBtn: {
     flex: 1,

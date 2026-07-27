@@ -17,7 +17,7 @@ import AssignRunnersScreen from './src/screens/AssignRunnersScreen';
 import ScoreboardScreen from './src/screens/ScoreboardScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { DivisionProvider } from './src/context/DivisionContext';
-import DivisionSwitcher from './src/components/DivisionSwitcher';
+import FloatingDivisionPill from './src/components/FloatingDivisionPill';
 import { styleTokens } from './src/theme';
 import { scale } from './src/utils/scale';
 
@@ -27,12 +27,8 @@ const withDivisionSwitcher = (ScreenComponent) => {
   function ScreenWithDivisionSwitcher(props) {
     return (
       <View style={styles.screenShell}>
-        <View style={styles.switcherBar}>
-          <DivisionSwitcher />
-        </View>
-        <View style={styles.screenBody}>
-          <ScreenComponent {...props} />
-        </View>
+        <ScreenComponent {...props} />
+        <FloatingDivisionPill />
       </View>
     );
   }
@@ -89,6 +85,8 @@ export default function App() {
             headerTitleStyle: {
               fontWeight: 'bold',
               fontFamily: 'RobotoMono-Bold',
+              textTransform: 'uppercase',
+              letterSpacing: 1.5,
             },
             // On web the native back-arrow icon doesn't render in Safari.
             // Provide a simple text arrow for web only; native keeps its default.
@@ -174,16 +172,5 @@ const styles = StyleSheet.create({
   screenShell: {
     flex: 1,
     backgroundColor: styleTokens.colors.background,
-  },
-  switcherBar: {
-    paddingHorizontal: scale(16),
-    paddingTop: scale(8),
-    paddingBottom: scale(4),
-    backgroundColor: '#9FA7AE',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  screenBody: {
-    flex: 1,
   },
 }); 

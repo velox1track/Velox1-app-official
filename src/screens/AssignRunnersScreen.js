@@ -16,13 +16,14 @@ import {
   loadEventAssignments,
   setAssignmentForEvent,
   getUsedAthleteIdsExcludingEvent,
+  getUsedAthleteIdsExcludingEventByType,
   isRelayEvent,
   getRelayAthleteCount,
   getTeamAssignmentForEvent,
   preserveLanesByTeam
 } from '../lib/eventAssignments';
 import { useDivision } from '../context/DivisionContext';
-import { getTeams, setPendingLaneEventIndex } from '../lib/storage';
+import { getTeams, setPendingLaneEventIndex, getEligibilitySettings } from '../lib/storage';
 
 const AssignRunnersScreen = ({ route, navigation }) => {
   const { activeDivisionId } = useDivision();
@@ -35,6 +36,7 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [teamSelections, setTeamSelections] = useState({}); // {teamId: [athleteIds]}
   const [usedAthleteIds, setUsedAthleteIds] = useState([]);
+  const [allowIndividualPlusRelay, setAllowIndividualPlusRelay] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showIncompleteConfirm, setShowIncompleteConfirm] = useState(false);
@@ -59,14 +61,20 @@ const AssignRunnersScreen = ({ route, navigation }) => {
     try {
       setIsLoading(true);
 
-      const [teamsData, assignmentsData] = await Promise.all([
+      const [teamsData, assignmentsData, eligibilitySettings] = await Promise.all([
         getTeams(activeDivisionId),
         loadEventAssignments(activeDivisionId),
+        getEligibilitySettings(activeDivisionId),
       ]);
       setTeams(teamsData);
       setAssignments(assignmentsData);
+      setAllowIndividualPlusRelay(eligibilitySettings.allowIndividualPlusRelay);
 
-      const usedIds = getUsedAthleteIdsExcludingEvent(assignmentsData, eventIndex);
+      // Relaxed mode: an athlete may run one individual event AND one relay,
+      // so "used" is tracked per event-type bucket instead of a single flat set.
+      const usedIds = eligibilitySettings.allowIndividualPlusRelay
+        ? getUsedAthleteIdsExcludingEventByType(assignmentsData, eventIndex, isRelay)
+        : getUsedAthleteIdsExcludingEvent(assignmentsData, eventIndex);
       setUsedAthleteIds(usedIds);
 
       const existingSelections = {};
@@ -395,7 +403,10 @@ const AssignRunnersScreen = ({ route, navigation }) => {
           
           {selectedTeam && (
             <MobileCaption style={styles.usedAthletesNote}>
-              {selectedTeam.name}: {getUsedAthletesForTeam(selectedTeam)} of {selectedTeam.athletes.length} athletes used in previous events
+              {selectedTeam.name}: {getUsedAthletesForTeam(selectedTeam)} of {selectedTeam.athletes.length} athletes already used
+              {allowIndividualPlusRelay
+                ? isRelay ? ' in another relay' : ' in another individual event'
+                : ' in previous events'}
             </MobileCaption>
           )}
         </Card>
@@ -506,10 +517,14 @@ const AssignRunnersScreen = ({ route, navigation }) => {
                       </View>
                       <View style={styles.athleteInfo}>
                         <View style={styles.athleteNameRow}>
-                          <MobileBody style={[
-                            styles.athleteName,
-                            isUsedElsewhere && styles.athleteNameUsed
-                          ]}>
+                          <MobileBody
+                            style={[
+                              styles.athleteName,
+                              isUsedElsewhere && styles.athleteNameUsed,
+                            ]}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          >
                             {athlete.name}
                           </MobileBody>
                           {athlete.gender && (
@@ -523,11 +538,6 @@ const AssignRunnersScreen = ({ route, navigation }) => {
                           {athlete.bestEvents && ` • ${athlete.bestEvents}`}
                         </MobileCaption>
                       </View>
-                      {isUsedElsewhere && (
-                        <View style={styles.usedBadge}>
-                          <MobileCaption style={styles.usedBadgeText}>Used</MobileCaption>
-                        </View>
-                      )}
                     </Pressable>
                   );
                 })}
@@ -629,7 +639,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: scale(24),
-    paddingBottom: scale(40),
+    paddingBottom: scale(88),
     gap: scale(20),
   },
   loadingContainer: {
@@ -819,26 +829,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   athleteName: {
+    flex: 1,
+    flexShrink: 1,
     color: styleTokens.colors.textPrimary,
-    fontWeight: '600',
+    fontSize: scale(16),
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
+    lineHeight: scale(22),
     marginBottom: scale(2),
+    textTransform: 'none',
   },
   athleteNameUsed: {
     color: styleTokens.colors.textSecondary,
   },
   athleteTier: {
     color: styleTokens.colors.textSecondary,
-  },
-  usedBadge: {
-    backgroundColor: styleTokens.colors.primaryDark,
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(4),
-    borderRadius: scale(6),
-  },
-  usedBadgeText: {
-    color: styleTokens.colors.white,
-    fontSize: scale(10),
-    fontWeight: 'bold',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -867,9 +872,10 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: styleTokens.colors.white,
     fontSize: scale(16),
-    fontWeight: '600',
+    fontWeight: '700',
+    fontFamily: styleTokens.typography.fonts.robotoMono,
     textTransform: 'uppercase',
-    letterSpacing: scale(1),
+    letterSpacing: styleTokens.typography.letterSpacing.wide,
   },
   buttonText: {
     fontSize: scale(15), // Consistent font size for both buttons
