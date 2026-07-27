@@ -1118,7 +1118,11 @@ const SettingsScreen = ({ navigation }) => {
                   />
                 </View>
                 {/* Allow Multiple removed: infractions are per-occurrence applied in Scoreboard */}
-                <View style={styles.infractionActionsCol}>
+                <View style={
+                  editingInfractionId === item.id || openInfractionMenuId === item.id
+                    ? styles.infractionActionsCol
+                    : styles.infractionActionsColCollapsed
+                }>
                   {editingInfractionId === item.id ? (
                     <View style={styles.infractionEditActions}>
                       <ButtonSecondary onPress={() => setEditingInfractionId(null)} style={styles.infractionBtnSm}>Done</ButtonSecondary>
@@ -1839,8 +1843,9 @@ const styles = StyleSheet.create({
   },
   infractionPointsCol: {
     flexGrow: 1,
-    flexBasis: '48%',
-    minWidth: scale(160),
+    flexShrink: 1,
+    flexBasis: '40%',
+    minWidth: scale(140),
     alignSelf: 'flex-start',
   },
   infractionToggleCol: {
@@ -1854,6 +1859,18 @@ const styles = StyleSheet.create({
     minWidth: scale(220),
     alignItems: 'flex-end',
     justifyContent: 'flex-end',
+  },
+  // Slim variant used when only the "⋯" trigger is showing, so it sits inline
+  // after the Points column instead of forcing a wrap onto its own row. The
+  // wider infractionActionsCol above is still used once Edit/Delete/✕ are
+  // revealed, which lets that wider content wrap below as before.
+  infractionActionsColCollapsed: {
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: scale(36),
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    alignSelf: 'flex-start',
   },
   infractionDeleteBtn: {
     minWidth: scale(120),
@@ -1968,8 +1985,9 @@ const styles = StyleSheet.create({
   },
   infractionLabelReadOnly: {
     flexGrow: 1,
-    flexBasis: '48%',
-    minWidth: scale(160),
+    flexShrink: 1,
+    flexBasis: '40%',
+    minWidth: scale(110),
     gap: scale(6),
     alignSelf: 'flex-start',
   },

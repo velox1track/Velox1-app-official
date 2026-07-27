@@ -13,7 +13,7 @@ import TeamList from '../components/TeamList';
 import { assignTeams, moveAthlete, getTeamColors, getColorName } from '../lib/assigner';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
-import { ButtonPrimary, ButtonSecondary, Input } from '../components';
+import { ButtonPrimary, ButtonSecondary, Input, SegmentedToggle } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 import { useDivision } from '../context/DivisionContext';
@@ -483,24 +483,16 @@ const AssignTeamsScreen = () => {
           <MobileH2 style={styles.sectionTitle}>Team Assignment</MobileH2>
 
           {/* Mode Toggle */}
-          <View style={styles.modeToggleContainer}>
-            <Pressable
-              style={[styles.modeToggleButton, assignmentMode === 'auto' && styles.modeToggleButtonActive]}
-              onPress={switchToAutoMode}
-            >
-              <MobileBody style={[styles.modeToggleText, assignmentMode === 'auto' && styles.modeToggleTextActive]}>
-                Auto Generate
-              </MobileBody>
-            </Pressable>
-            <Pressable
-              style={[styles.modeToggleButton, assignmentMode === 'manual' && styles.modeToggleButtonActive]}
-              onPress={switchToManualMode}
-            >
-              <MobileBody style={[styles.modeToggleText, assignmentMode === 'manual' && styles.modeToggleTextActive]}>
-                Manual Assignment
-              </MobileBody>
-            </Pressable>
-          </View>
+          <SegmentedToggle
+            options={[
+              { value: 'auto', label: 'Auto Generate' },
+              { value: 'manual', label: 'Manual Assignment' },
+            ]}
+            value={assignmentMode}
+            onChange={(value) => (value === 'auto' ? switchToAutoMode() : switchToManualMode())}
+            accessibilityLabel="Team assignment mode"
+            style={styles.modeToggleContainer}
+          />
 
           <View style={styles.inputRow}>
             <View style={styles.inputGroupHalf}>
@@ -1347,32 +1339,7 @@ const styles = StyleSheet.create({
   },
   // Manual assignment styles
   modeToggleContainer: {
-    flexDirection: 'row',
-    gap: scale(8),
     marginBottom: scale(16),
-    padding: scale(4),
-    backgroundColor: styleTokens.colors.surface,
-    borderRadius: scale(8),
-  },
-  modeToggleButton: {
-    flex: 1,
-    paddingVertical: scale(12),
-    paddingHorizontal: scale(16),
-    borderRadius: scale(6),
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  modeToggleButtonActive: {
-    backgroundColor: styleTokens.colors.primary,
-  },
-  modeToggleText: {
-    color: styleTokens.colors.textSecondary,
-    fontSize: scale(14),
-    fontWeight: '600',
-  },
-  modeToggleTextActive: {
-    color: styleTokens.colors.white,
   },
   manualAssignmentCard: {
     padding: scale(20),
