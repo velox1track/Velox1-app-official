@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -75,6 +75,11 @@ const RaceRouletteScreen = ({ navigation }) => {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [sequenceValidationSummary, setSequenceValidationSummary] = useState(null);
   const [showSequenceValidationModal, setShowSequenceValidationModal] = useState(false);
+
+  const scrollViewRef = useRef(null);
+  const laneModalRef = useRef(null);
+  const eventActionModalRef = useRef(null);
+  const resetConfirmRef = useRef(null);
 
   // Manual Sequence Builder state
   const [manualDraftSequence, setManualDraftSequence] = useState([]);
@@ -207,6 +212,26 @@ const RaceRouletteScreen = ({ navigation }) => {
       setPendingLaneAssignments(lanes);
       setLaneEventIndex(idx);
       setShowLaneModal(true);
+
+      // This modal opens while the screen is still popping back from Assign
+      // Athletes, and the page doesn't reach its full scrollable height until
+      // ~1s later (the modal briefly reports top≈0 before that), so a single
+      // scrollIntoView finds nothing to scroll. Keep re-aligning for ~3s.
+      let attempts = 0;
+      const scrollToLaneModal = () => {
+        attempts += 1;
+        const node = laneModalRef.current;
+        if (node?.scrollIntoView) {
+          if (Math.abs(node.getBoundingClientRect().top) > 8) {
+            node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        } else if (node && attempts === 1) {
+          // Native fallback
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }
+        if (attempts < 20) setTimeout(scrollToLaneModal, 150);
+      };
+      setTimeout(scrollToLaneModal, 300);
     }
   }, []);
 
@@ -407,6 +432,16 @@ const RaceRouletteScreen = ({ navigation }) => {
       // Event already has athletes — let coach choose what to do next
       setSelectedEvent({ index: eventIndex, name: eventName });
       setShowEventActionModal(true);
+
+      setTimeout(() => {
+        // scrollIntoView is the most reliable cross-browser approach for web/PWA
+        if (eventActionModalRef.current?.scrollIntoView) {
+          eventActionModalRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          // Native fallback
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }
+      }, 300);
     } else {
       // No athletes yet — go straight to assignment
       handleAssignAthletes(eventIndex, eventName);
@@ -416,6 +451,16 @@ const RaceRouletteScreen = ({ navigation }) => {
   const resetSequence = () => {
     console.log('Reset button clicked');
     setShowResetConfirm(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (resetConfirmRef.current?.scrollIntoView) {
+        resetConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleResetConfirm = async () => {
@@ -476,6 +521,16 @@ const RaceRouletteScreen = ({ navigation }) => {
     }
     setLaneEventIndex(eventIndex);
     setShowLaneModal(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (laneModalRef.current?.scrollIntoView) {
+        laneModalRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleRerollAll = () => {
@@ -518,7 +573,8 @@ const RaceRouletteScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <ScrollView 
+      <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
@@ -879,7 +935,7 @@ const RaceRouletteScreen = ({ navigation }) => {
       {/* Lane Assignment Modal */}
       {showLaneModal && (
         <View style={styles.modalOverlay}>
-          <View style={styles.laneModalContent}>
+          <View ref={laneModalRef} style={styles.laneModalContent}>
             <MobileH2 style={styles.laneModalTitle}>Lane Assignments</MobileH2>
             <MobileCaption style={styles.laneModalSubtitle}>
               {laneEventIndex !== null ? eventSequence[laneEventIndex] : ''}
@@ -939,7 +995,7 @@ const RaceRouletteScreen = ({ navigation }) => {
       {/* Event Action Modal — choose Edit Athletes or Manage Lanes */}
       {showEventActionModal && selectedEvent && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View ref={eventActionModalRef} style={styles.modalContent}>
             <MobileCaption style={styles.eventActionEventNum}>
               Event #{selectedEvent.index + 1}
             </MobileCaption>
@@ -984,7 +1040,7 @@ const RaceRouletteScreen = ({ navigation }) => {
       {/* Reset Confirmation Modal */}
       {showResetConfirm && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View ref={resetConfirmRef} style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>Reset Sequence</MobileH2>
             <MobileBody style={styles.modalMessage}>
               This will clear the current event sequence, all recorded scores, and all athlete assignments. You can then generate a new sequence.

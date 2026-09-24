@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -46,6 +46,9 @@ const AssignTeamsScreen = () => {
   const [selectedAthletes, setSelectedAthletes] = useState([]); // IDs of selected athletes
   const [selectedTeamForAssignment, setSelectedTeamForAssignment] = useState(null); // Team to assign to
   const [teamsAcceptingRandom, setTeamsAcceptingRandom] = useState({}); // { teamId: boolean }
+
+  const scrollViewRef = useRef(null);
+  const resetConfirmRef = useRef(null);
 
   // Load division-scoped athletes on mount and when division changes
   useEffect(() => {
@@ -208,6 +211,16 @@ const AssignTeamsScreen = () => {
   const resetTeams = () => {
     console.log('Reset teams clicked');
     setShowResetConfirm(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (resetConfirmRef.current?.scrollIntoView) {
+        resetConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleResetConfirm = async () => {
@@ -473,8 +486,9 @@ const AssignTeamsScreen = () => {
 
   return (
     <View style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
@@ -890,7 +904,7 @@ const AssignTeamsScreen = () => {
       {/* Reset Teams Confirmation Modal */}
       {showResetConfirm && (
         <View style={styles.resetModalOverlay}>
-          <View style={styles.resetModalContent}>
+          <View ref={resetConfirmRef} style={styles.resetModalContent}>
             <MobileH2 style={styles.resetModalTitle}>Reset Teams</MobileH2>
             <MobileBody style={styles.resetModalMessage}>
               Are you sure you want to reset all teams? This action cannot be undone.

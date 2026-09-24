@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -33,6 +33,11 @@ const TeamBuilderScreen = () => {
   const [editTier, setEditTier] = useState('Med');
   const [editBestEvents, setEditBestEvents] = useState('');
 
+  const scrollViewRef = useRef(null);
+  const clearAllConfirmRef = useRef(null);
+  const editModalRef = useRef(null);
+  const deleteConfirmRef = useRef(null);
+
   const addAthlete = async (athlete) => {
     const newAthletes = [...athletes, athlete];
     await persistAthletes(newAthletes);
@@ -48,6 +53,16 @@ const TeamBuilderScreen = () => {
     console.log('Delete athlete clicked:', athleteId);
     setAthleteToDelete(athleteId);
     setShowDeleteConfirm(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (deleteConfirmRef.current?.scrollIntoView) {
+        deleteConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleDeleteConfirm = async () => {
@@ -67,6 +82,16 @@ const TeamBuilderScreen = () => {
   const clearAllAthletes = () => {
     console.log('Clear all athletes clicked');
     setShowClearAllConfirm(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (clearAllConfirmRef.current?.scrollIntoView) {
+        clearAllConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleClearAllConfirm = async () => {
@@ -87,6 +112,16 @@ const TeamBuilderScreen = () => {
     setEditTier(athlete.tier);
     setEditBestEvents(athlete.bestEvents || '');
     setShowEditModal(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (editModalRef.current?.scrollIntoView) {
+        editModalRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleEditSave = async () => {
@@ -125,8 +160,9 @@ const TeamBuilderScreen = () => {
           <MobileBody style={styles.loadingText}>Loading athletes...</MobileBody>
         </View>
       ) : (
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
@@ -248,7 +284,7 @@ const TeamBuilderScreen = () => {
       {/* Clear All Confirmation Modal */}
       {showClearAllConfirm && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View ref={clearAllConfirmRef} style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>Clear All Athletes</MobileH2>
             <MobileBody style={styles.modalMessage}>
               Are you sure you want to delete all athletes? This action cannot be undone.
@@ -268,7 +304,7 @@ const TeamBuilderScreen = () => {
       {/* Edit Athlete Modal */}
       {showEditModal && athleteToEdit && (
         <View style={styles.modalOverlay}>
-          <View style={styles.editModalContent}>
+          <View ref={editModalRef} style={styles.editModalContent}>
             <MobileH2 style={styles.editModalTitle}>Edit Athlete</MobileH2>
 
             {/* Name */}
@@ -347,7 +383,7 @@ const TeamBuilderScreen = () => {
       {/* Delete Athlete Confirmation Modal */}
       {showDeleteConfirm && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View ref={deleteConfirmRef} style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>Delete Athlete</MobileH2>
             <MobileBody style={styles.modalMessage}>
               Are you sure you want to delete this athlete?

@@ -54,6 +54,7 @@ const ScoreboardScreen = ({ navigation }) => {
 
   const scrollViewRef = useRef(null);
   const formRef = useRef(null);
+  const resetConfirmRef = useRef(null);
 
   const mapInfractionPresets = (infractions) => {
     if (infractions?.items?.length) {
@@ -288,6 +289,16 @@ const ScoreboardScreen = ({ navigation }) => {
   const resetAllResults = () => {
     console.log('Reset all results clicked');
     setShowResetAllConfirm(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (resetConfirmRef.current?.scrollIntoView) {
+        resetConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleResetAllConfirm = async () => {
@@ -590,7 +601,7 @@ const ScoreboardScreen = ({ navigation }) => {
       {/* Reset All Results Confirmation Modal */}
       {showResetAllConfirm && (
         <View style={styles.resetModalOverlay}>
-          <View style={styles.resetModalContent}>
+          <View ref={resetConfirmRef} style={styles.resetModalContent}>
             <MobileH2 style={styles.resetModalTitle}>Reset All Results</MobileH2>
             <MobileBody style={styles.resetModalMessage}>
               Are you sure you want to clear all event results? This action cannot be undone.

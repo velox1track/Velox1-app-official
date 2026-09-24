@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -42,6 +42,10 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   const [showIncompleteConfirm, setShowIncompleteConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [genderFilter, setGenderFilter] = useState('mixed'); // 'mixed', 'male', 'female'
+
+  const scrollViewRef = useRef(null);
+  const cancelConfirmRef = useRef(null);
+  const incompleteConfirmRef = useRef(null);
 
   const isRelay = isRelayEvent(eventName);
   const requiredAthletes = isRelay ? getRelayAthleteCount(eventName) : 1;
@@ -223,6 +227,16 @@ const AssignRunnersScreen = ({ route, navigation }) => {
     if (incompleteTeams.length > 0) {
       console.log('Showing incomplete confirmation modal');
       setShowIncompleteConfirm(true);
+
+      setTimeout(() => {
+        // scrollIntoView is the most reliable cross-browser approach for web/PWA
+        if (incompleteConfirmRef.current?.scrollIntoView) {
+          incompleteConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          // Native fallback
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }
+      }, 300);
       return;
     }
     
@@ -301,6 +315,16 @@ const AssignRunnersScreen = ({ route, navigation }) => {
 
   const handleCancel = () => {
     setShowCancelConfirm(true);
+
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (cancelConfirmRef.current?.scrollIntoView) {
+        cancelConfirmRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
   };
 
   const handleCancelConfirm = () => {
@@ -360,8 +384,9 @@ const AssignRunnersScreen = ({ route, navigation }) => {
 
   return (
     <View style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
@@ -585,7 +610,7 @@ const AssignRunnersScreen = ({ route, navigation }) => {
       {/* Cancel Confirmation Modal */}
       {showCancelConfirm && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View ref={cancelConfirmRef} style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>Cancel Assignment</MobileH2>
             <MobileBody style={styles.modalMessage}>
               Are you sure you want to cancel? Any unsaved changes will be lost.
@@ -605,7 +630,7 @@ const AssignRunnersScreen = ({ route, navigation }) => {
       {/* Incomplete Assignments Confirmation Modal */}
       {showIncompleteConfirm && (
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View ref={incompleteConfirmRef} style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>Incomplete Assignments</MobileH2>
             <MobileBody style={styles.modalMessage}>
               The following teams need {requiredAthletes} {requiredAthletes === 1 ? 'athlete' : 'athletes'} assigned:{'\n\n'}
