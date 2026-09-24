@@ -21,7 +21,7 @@ import { scale } from '../utils/scale';
 import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
 
 const TeamBuilderScreen = () => {
-  const { athletes, isLoading, persistAthletes, wipeAthletes } = useDivisionAthletes();
+  const { athletes, isLoading, persistAthletes, editAthlete, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -129,12 +129,13 @@ const TeamBuilderScreen = () => {
       Alert.alert('Error', 'Please enter an athlete name');
       return;
     }
-    const updatedAthletes = athletes.map((a) =>
-      a.id === athleteToEdit.id
-        ? { ...a, name: editName.trim(), gender: editGender, tier: editTier, bestEvents: editBestEvents.trim() || null }
-        : a
-    );
-    await persistAthletes(updatedAthletes);
+    await editAthlete({
+      id: athleteToEdit.id,
+      name: editName.trim(),
+      gender: editGender,
+      tier: editTier,
+      bestEvents: editBestEvents.trim() || null,
+    });
     setShowEditModal(false);
     setAthleteToEdit(null);
   };

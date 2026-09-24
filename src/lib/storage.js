@@ -245,6 +245,47 @@ export const saveAthletes = async (athletes, divisionId = null) => {
   return merged.athletes || [];
 };
 
+const TIER_VALUES = { High: 3, Med: 2, Low: 1 };
+
+/**
+ * Apply an edit to one athlete in the roster and to every copy of that
+ * athlete stored elsewhere (team rosters, lane assignments). Returns the
+ * saved athlete list.
+ */
+export const updateAthlete = async (updatedAthlete, divisionId = null) => {
+  const id = await resolveDivisionId(divisionId);
+  const data = await getDivisionData(id);
+  const isMatch = (athleteId) => athleteId != null && String(athleteId) === String(updatedAthlete.id);
+  const { name, gender, tier, bestEvents } = updatedAthlete;
+  const edits = { name, gender, tier, bestEvents };
+
+  const athletes = (data.athletes || []).map((a) => (isMatch(a.id) ? { ...a, ...edits } : a));
+
+  const teams = (data.teams || []).map((team) => ({
+    ...team,
+    athletes: (team.athletes || []).map((a) => {
+      if (!isMatch(a.id)) return a;
+      const next = { ...a, ...edits };
+      if (a.tierValue != null && TIER_VALUES[tier] != null) next.tierValue = TIER_VALUES[tier];
+      return next;
+    }),
+  }));
+
+  const eventAssignments = (data.eventAssignments || []).map((record) =>
+    Array.isArray(record.laneAssignments)
+      ? {
+          ...record,
+          laneAssignments: record.laneAssignments.map((la) =>
+            isMatch(la.athleteId) ? { ...la, athleteName: name } : la
+          ),
+        }
+      : record
+  );
+
+  const merged = await updateDivisionData(id, { athletes, teams, eventAssignments });
+  return merged.athletes || [];
+};
+
 /** Clear athletes for a division (defaults to active). */
 export const clearAthletes = async (divisionId = null) => {
   const id = await resolveDivisionId(divisionId);
