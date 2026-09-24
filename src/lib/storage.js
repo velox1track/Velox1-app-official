@@ -286,6 +286,43 @@ export const updateAthlete = async (updatedAthlete, divisionId = null) => {
   return merged.athletes || [];
 };
 
+/**
+ * Delete one athlete from the roster and from everywhere else they appear
+ * (team rosters, event assignments). Lane entries keep their lane number so a
+ * replacement athlete inherits the team's lane. Returns the saved athlete list.
+ */
+export const removeAthlete = async (athleteId, divisionId = null) => {
+  const id = await resolveDivisionId(divisionId);
+  const data = await getDivisionData(id);
+  const isMatch = (candidateId) => candidateId != null && String(candidateId) === String(athleteId);
+
+  const athletes = (data.athletes || []).filter((a) => !isMatch(a.id));
+
+  const teams = (data.teams || []).map((team) => ({
+    ...team,
+    athletes: (team.athletes || []).filter((a) => !isMatch(a.id)),
+  }));
+
+  const eventAssignments = (data.eventAssignments || []).map((record) => {
+    const next = {
+      ...record,
+      assignments: (record.assignments || []).map((ta) => ({
+        ...ta,
+        athleteIds: (ta.athleteIds || []).filter((aid) => !isMatch(aid)),
+      })),
+    };
+    if (Array.isArray(record.laneAssignments)) {
+      next.laneAssignments = record.laneAssignments.map((la) =>
+        isMatch(la.athleteId) ? { ...la, athleteId: null, athleteName: null } : la
+      );
+    }
+    return next;
+  });
+
+  const merged = await updateDivisionData(id, { athletes, teams, eventAssignments });
+  return merged.athletes || [];
+};
+
 /** Clear athletes for a division (defaults to active). */
 export const clearAthletes = async (divisionId = null) => {
   const id = await resolveDivisionId(divisionId);

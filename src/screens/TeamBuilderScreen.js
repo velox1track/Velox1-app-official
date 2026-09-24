@@ -21,7 +21,7 @@ import { scale } from '../utils/scale';
 import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
 
 const TeamBuilderScreen = () => {
-  const { athletes, isLoading, persistAthletes, editAthlete, wipeAthletes } = useDivisionAthletes();
+  const { athletes, isLoading, persistAthletes, editAthlete, removeAthlete, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -67,8 +67,7 @@ const TeamBuilderScreen = () => {
 
   const handleDeleteConfirm = async () => {
     console.log('Confirming delete for athlete:', athleteToDelete);
-    const newAthletes = athletes.filter(a => a.id !== athleteToDelete);
-    await persistAthletes(newAthletes);
+    await removeAthlete(athleteToDelete);
     setShowDeleteConfirm(false);
     setAthleteToDelete(null);
   };
