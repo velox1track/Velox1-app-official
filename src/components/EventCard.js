@@ -4,7 +4,10 @@ import { MobileH2, MobileCaption } from './Typography';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 
-const EventCard = ({ event, index, isRevealed, isNext, isAssigned, onPress }) => {
+// assignmentStatus: 'unassigned' | 'incomplete' | 'complete'
+const EventCard = ({ event, index, isRevealed, isNext, assignmentStatus = 'unassigned', onPress }) => {
+  const isAssigned = assignmentStatus === 'complete';
+  const needsRunner = assignmentStatus === 'incomplete';
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isClickable = isRevealed && onPress;
@@ -18,6 +21,7 @@ const EventCard = ({ event, index, isRevealed, isNext, isAssigned, onPress }) =>
         isRevealed ? styles.revealed : styles.hidden,
         isNext ? styles.nextEvent : null,
         isAssigned ? styles.assigned : null,
+        needsRunner ? styles.needsRunner : null,
         isClickable ? styles.clickable : null,
         isLandscape && styles.cardLandscape
       ]}
@@ -37,7 +41,10 @@ const EventCard = ({ event, index, isRevealed, isNext, isAssigned, onPress }) =>
       {isRevealed && isAssigned && (
         <MobileCaption style={styles.assignedIndicator}>✓ Assigned</MobileCaption>
       )}
-      {isRevealed && !isAssigned && (
+      {isRevealed && needsRunner && (
+        <MobileCaption style={styles.needsRunnerIndicator}>⚠ Needs runner</MobileCaption>
+      )}
+      {isRevealed && assignmentStatus === 'unassigned' && (
         <MobileCaption style={styles.unassignedIndicator}>Tap to Assign</MobileCaption>
       )}
     </CardWrapper>
@@ -72,6 +79,10 @@ const styles = StyleSheet.create({
     backgroundColor: styleTokens.colors.primary,
     borderColor: styleTokens.colors.primary,
   },
+  needsRunner: {
+    backgroundColor: styleTokens.colors.primary,
+    borderColor: styleTokens.colors.warning,
+  },
   clickable: {
     // Add subtle visual feedback for clickable state
     opacity: 1,
@@ -98,6 +109,11 @@ const styles = StyleSheet.create({
     marginTop: scale(4),
   },
   assignedIndicator: {
+    color: styleTokens.colors.white,
+    marginTop: scale(4),
+    fontWeight: 'bold',
+  },
+  needsRunnerIndicator: {
     color: styleTokens.colors.white,
     marginTop: scale(4),
     fontWeight: 'bold',

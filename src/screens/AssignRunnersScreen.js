@@ -29,6 +29,9 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   const { activeDivisionId } = useDivision();
   const eventIndex = route?.params?.eventIndex;
   const eventName = route?.params?.eventName;
+  // Set when opened as a shortcut to fill a gap left by a roster change.
+  const initialTeamId = route?.params?.teamId;
+  const returnAfterSave = !!route?.params?.returnAfterSave;
   const hasValidParams = eventIndex != null && !!eventName;
   
   const [teams, setTeams] = useState([]);
@@ -88,14 +91,15 @@ const AssignRunnersScreen = ({ route, navigation }) => {
       });
 
       setTeamSelections(existingSelections);
-      setSelectedTeamId(teamsData.length > 0 ? teamsData[0].id : null);
+      const requestedTeam = teamsData.find((t) => String(t.id) === String(initialTeamId));
+      setSelectedTeamId(requestedTeam ? requestedTeam.id : teamsData.length > 0 ? teamsData[0].id : null);
     } catch (error) {
       console.log('Error loading data:', error);
       Alert.alert('Error', 'Failed to load data. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [activeDivisionId, eventIndex, hasValidParams]);
+  }, [activeDivisionId, eventIndex, hasValidParams, initialTeamId]);
 
   useEffect(() => {
     if (!hasValidParams || !activeDivisionId) return;
@@ -296,6 +300,14 @@ const AssignRunnersScreen = ({ route, navigation }) => {
       }
 
       setAssignments(updatedAssignments);
+
+      if (returnAfterSave) {
+        // Existing lanes carry over by team, so skip the lane pop-up and
+        // return to the roster screen the shortcut came from.
+        navigation.goBack();
+        return;
+      }
+
       await setPendingLaneEventIndex(eventIndex, activeDivisionId);
 
       // Use a small delay to ensure state is saved before navigation

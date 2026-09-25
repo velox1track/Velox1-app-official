@@ -21,9 +21,9 @@ import { scale } from '../utils/scale';
 import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
 import { useDivision } from '../context/DivisionContext';
 import { getAthleteParticipation } from '../lib/storage';
-import { describeTeamChangeImpact } from '../lib/athleteImpact';
+import { buildReplacementPrompt, describeTeamChangeImpact } from '../lib/athleteImpact';
 
-const TeamBuilderScreen = () => {
+const TeamBuilderScreen = ({ navigation }) => {
   const { activeDivisionId } = useDivision();
   const { athletes, isLoading, persistAthletes, editAthlete, removeAthlete, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
@@ -31,6 +31,7 @@ const TeamBuilderScreen = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [athleteToDelete, setAthleteToDelete] = useState(null);
   const [deleteParticipation, setDeleteParticipation] = useState(null);
+  const [replacementPrompt, setReplacementPrompt] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [athleteToEdit, setAthleteToEdit] = useState(null);
   const [editName, setEditName] = useState('');
@@ -42,6 +43,7 @@ const TeamBuilderScreen = () => {
   const clearAllConfirmRef = useRef(null);
   const editModalRef = useRef(null);
   const deleteConfirmRef = useRef(null);
+  const replacementPromptRef = useRef(null);
 
   const addAthlete = async (athlete) => {
     const newAthletes = [...athletes, athlete];
@@ -79,10 +81,39 @@ const TeamBuilderScreen = () => {
 
   const handleDeleteConfirm = async () => {
     console.log('Confirming delete for athlete:', athleteToDelete);
+    const prompt = buildReplacementPrompt({
+      action: 'delete',
+      athleteName: athletes.find(a => a.id === athleteToDelete)?.name || 'The athlete',
+      participation: deleteParticipation,
+    });
     await removeAthlete(athleteToDelete);
     setShowDeleteConfirm(false);
     setAthleteToDelete(null);
     setDeleteParticipation(null);
+
+    if (prompt) {
+      setReplacementPrompt(prompt);
+      setTimeout(() => {
+        // scrollIntoView is the most reliable cross-browser approach for web/PWA
+        if (replacementPromptRef.current?.scrollIntoView) {
+          replacementPromptRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          // Native fallback
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }
+      }, 300);
+    }
+  };
+
+  const handleAssignReplacementNow = () => {
+    const prompt = replacementPrompt;
+    setReplacementPrompt(null);
+    navigation.navigate('AssignRunners', {
+      eventIndex: prompt.eventIndex,
+      eventName: prompt.eventName,
+      teamId: prompt.teamId,
+      returnAfterSave: true,
+    });
   };
 
   const handleDeleteCancel = () => {
@@ -417,6 +448,26 @@ const TeamBuilderScreen = () => {
                   <Text style={styles.modalButtonTextConfirm}>Delete</Text>
                 </Pressable>
               )}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Replacement Needed Prompt */}
+      {replacementPrompt && (
+        <View style={styles.modalOverlay}>
+          <View ref={replacementPromptRef} style={styles.modalContent}>
+            <MobileH2 style={styles.modalTitle}>{replacementPrompt.title}</MobileH2>
+            <MobileBody style={styles.modalMessage}>
+              {replacementPrompt.message}
+            </MobileBody>
+            <View style={styles.modalButtons}>
+              <Pressable style={styles.modalButtonCancel} onPress={() => setReplacementPrompt(null)}>
+                <Text style={styles.modalButtonTextCancel}>Later</Text>
+              </Pressable>
+              <Pressable style={styles.editModalButtonSave} onPress={handleAssignReplacementNow}>
+                <Text style={styles.editModalButtonTextSave}>Assign now</Text>
+              </Pressable>
             </View>
           </View>
         </View>

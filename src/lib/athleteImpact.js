@@ -56,3 +56,28 @@ export const describeTeamChangeImpact = ({ action, athleteName, participation, t
     message: lines.join('\n\n'),
   };
 };
+
+/**
+ * After a delete/remove/move that left a team without a runner, build the
+ * "Assign now / Later" prompt. Returns null when nothing needs replacing.
+ * "Assign now" targets the earliest affected event.
+ */
+export const buildReplacementPrompt = ({ action, athleteName, participation, toTeamName }) => {
+  const { team = null, unscoredEvents = [] } = participation || {};
+  if (!team || unscoredEvents.length === 0) return null;
+
+  const done = {
+    delete: `${athleteName} was deleted.`,
+    remove: `${athleteName} was removed from ${team.name}.`,
+    move: `${athleteName} was moved to ${toTeamName}.`,
+  }[action];
+  const target = [...unscoredEvents].sort((a, b) => a.eventIndex - b.eventIndex)[0];
+
+  return {
+    title: 'Replacement Needed',
+    message: `${done}\n\n${team.name} needs a new runner for: ${listEvents(unscoredEvents)}.`,
+    teamId: team.id,
+    eventIndex: target.eventIndex,
+    eventName: target.eventName,
+  };
+};

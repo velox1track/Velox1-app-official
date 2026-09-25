@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import EventCard from '../components/EventCard';
 import { generateEventSequence, getDefaultEventPool, getSequenceValidationSummary } from '../lib/randomizer';
-import { loadEventAssignments, isEventFullyAssigned, clearAllAssignments, generateLaneAssignments, rerollUnlockedLanes, getLaneAssignmentsForEvent, saveLaneAssignments } from '../lib/eventAssignments';
+import { loadEventAssignments, isEventFullyAssigned, getEventAssignmentStatus, clearAllAssignments, generateLaneAssignments, rerollUnlockedLanes, getLaneAssignmentsForEvent, saveLaneAssignments } from '../lib/eventAssignments';
 import { getDivisionData, getEventPool, getRouletteSettings, getTeams, setPendingLaneEventIndex, updateDivisionData } from '../lib/storage';
 import { useDivision } from '../context/DivisionContext';
 import eventBus from '../lib/eventBus';
@@ -923,7 +923,7 @@ const RaceRouletteScreen = ({ navigation }) => {
                   index={index}
                   isRevealed={index < revealedIndex}
                   isNext={index === revealedIndex}
-                  isAssigned={isEventFullyAssigned(assignments, index, teams)}
+                  assignmentStatus={getEventAssignmentStatus(assignments, index, teams)}
                   onPress={handleEventCardPress}
                 />
               ))}

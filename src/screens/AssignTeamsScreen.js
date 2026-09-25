@@ -25,9 +25,9 @@ import {
   updateActiveDivisionData,
 } from '../lib/storage';
 import { useDivisionTeams } from '../hooks/useDivisionTeams';
-import { describeTeamChangeImpact } from '../lib/athleteImpact';
+import { buildReplacementPrompt, describeTeamChangeImpact } from '../lib/athleteImpact';
 
-const AssignTeamsScreen = () => {
+const AssignTeamsScreen = ({ navigation }) => {
   const { activeDivisionId } = useDivision();
   const {
     teams,
@@ -55,11 +55,13 @@ const AssignTeamsScreen = () => {
   const [selectedTeamForAssignment, setSelectedTeamForAssignment] = useState(null); // Team to assign to
   const [teamsAcceptingRandom, setTeamsAcceptingRandom] = useState({}); // { teamId: boolean }
 
-  const [pendingTeamChange, setPendingTeamChange] = useState(null); // { athleteId, toTeamId, impact }
+  const [pendingTeamChange, setPendingTeamChange] = useState(null); // { athleteId, toTeamId, impact, replacement }
+  const [replacementPrompt, setReplacementPrompt] = useState(null);
 
   const scrollViewRef = useRef(null);
   const resetConfirmRef = useRef(null);
   const teamChangeModalRef = useRef(null);
+  const replacementPromptRef = useRef(null);
 
   // Load division-scoped athletes on mount and when division changes
   useEffect(() => {
@@ -202,7 +204,13 @@ const AssignTeamsScreen = () => {
       return;
     }
 
-    setPendingTeamChange({ athleteId, toTeamId, impact });
+    const replacement = buildReplacementPrompt({
+      action,
+      athleteName: athlete?.name || 'The athlete',
+      participation,
+      toTeamName: toTeam?.name,
+    });
+    setPendingTeamChange({ athleteId, toTeamId, impact, replacement });
     setTimeout(() => {
       // scrollIntoView is the most reliable cross-browser approach for web/PWA
       if (teamChangeModalRef.current?.scrollIntoView) {
@@ -223,9 +231,32 @@ const AssignTeamsScreen = () => {
   const handleTeamChangeConfirm = async () => {
     const change = pendingTeamChange;
     setPendingTeamChange(null);
-    if (change && !change.impact.blocked) {
-      await applyTeamChange(change);
+    if (!change || change.impact.blocked) return;
+
+    await applyTeamChange(change);
+    if (change.replacement) {
+      setReplacementPrompt(change.replacement);
+      setTimeout(() => {
+        // scrollIntoView is the most reliable cross-browser approach for web/PWA
+        if (replacementPromptRef.current?.scrollIntoView) {
+          replacementPromptRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          // Native fallback
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }
+      }, 300);
     }
+  };
+
+  const handleAssignReplacementNow = () => {
+    const prompt = replacementPrompt;
+    setReplacementPrompt(null);
+    navigation.navigate('AssignRunners', {
+      eventIndex: prompt.eventIndex,
+      eventName: prompt.eventName,
+      teamId: prompt.teamId,
+      returnAfterSave: true,
+    });
   };
 
   const openTeamEditor = (team) => {
@@ -1010,6 +1041,26 @@ const AssignTeamsScreen = () => {
           </View>
         </View>
       )}
+
+      {/* Replacement Needed Prompt */}
+      {replacementPrompt && (
+        <View style={styles.resetModalOverlay}>
+          <View ref={replacementPromptRef} style={styles.resetModalContent}>
+            <MobileH2 style={styles.resetModalTitle}>{replacementPrompt.title}</MobileH2>
+            <MobileBody style={styles.resetModalMessage}>
+              {replacementPrompt.message}
+            </MobileBody>
+            <View style={styles.resetModalButtons}>
+              <Pressable style={styles.resetModalButtonCancel} onPress={() => setReplacementPrompt(null)}>
+                <Text style={styles.resetModalButtonTextCancel}>Later</Text>
+              </Pressable>
+              <Pressable style={styles.resetModalButtonPrimary} onPress={handleAssignReplacementNow}>
+                <Text style={styles.resetModalButtonTextConfirm}>Assign now</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -1418,6 +1469,16 @@ const styles = StyleSheet.create({
   resetModalButtonConfirm: {
     flex: 1,
     backgroundColor: styleTokens.colors.error || '#e74c3c',
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(20),
+    borderRadius: scale(8),
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: scale(48),
+  },
+  resetModalButtonPrimary: {
+    flex: 1,
+    backgroundColor: styleTokens.colors.primary,
     paddingVertical: scale(12),
     paddingHorizontal: scale(20),
     borderRadius: scale(8),

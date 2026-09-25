@@ -177,6 +177,25 @@ export const isEventFullyAssigned = (assignments, eventIndex, teams) => {
   return eventAssignment.assignments.length > 0;
 };
 
+/**
+ * 'unassigned' – nothing saved for the event yet
+ * 'incomplete' – some team has no runner (or too few relay legs)
+ * 'complete'   – every team has its runner(s) or is marked Team Not Running
+ */
+export const getEventAssignmentStatus = (assignments, eventIndex, teams) => {
+  const record = getAssignmentForEvent(assignments, eventIndex);
+  const teamAssignments = record?.assignments || [];
+  if (!teamAssignments.some((ta) => (ta.athleteIds || []).length > 0)) return 'unassigned';
+
+  const required = record.isRelay ? getRelayAthleteCount(record.eventName) : 1;
+  const teamIsReady = (team) => {
+    const ta = teamAssignments.find((a) => String(a.teamId) === String(team.id));
+    const ids = ta?.athleteIds || [];
+    return (ids.length === 1 && ids[0] === 'NOT_RUNNING') || ids.length >= required;
+  };
+  return (teams || []).every(teamIsReady) ? 'complete' : 'incomplete';
+};
+
 export const getAssignmentStats = (assignments, teams) => {
   const totalEvents = assignments.length;
   const fullyAssignedEvents = assignments.filter(assignment => 
