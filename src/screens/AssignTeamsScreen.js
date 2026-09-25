@@ -10,21 +10,29 @@ import {
 } from 'react-native';
 import eventBus, { emitForDivision } from '../lib/eventBus';
 import TeamList from '../components/TeamList';
-import { assignTeams, moveAthlete, getTeamColors, getColorName } from '../lib/assigner';
+import { assignTeams, getTeamColors, getColorName } from '../lib/assigner';
 import { MobileH1, MobileH2, MobileBody, MobileCaption } from '../components/Typography';
 import { Card } from '../components/Card';
 import { ButtonPrimary, ButtonSecondary, Input, SegmentedToggle } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 import { useDivision } from '../context/DivisionContext';
-import { getActiveDivisionData, getAthletes, updateActiveDivisionData } from '../lib/storage';
+import {
+  getActiveDivisionData,
+  getAthleteParticipation,
+  getAthletes,
+  reassignAthleteTeam,
+  updateActiveDivisionData,
+} from '../lib/storage';
 import { useDivisionTeams } from '../hooks/useDivisionTeams';
+import { describeTeamChangeImpact } from '../lib/athleteImpact';
 
 const AssignTeamsScreen = () => {
   const { activeDivisionId } = useDivision();
   const {
     teams,
     plannedTeams,
+    loadTeams,
     persistTeams,
     setPlannedTeamCount,
     wipeTeams,
@@ -47,8 +55,11 @@ const AssignTeamsScreen = () => {
   const [selectedTeamForAssignment, setSelectedTeamForAssignment] = useState(null); // Team to assign to
   const [teamsAcceptingRandom, setTeamsAcceptingRandom] = useState({}); // { teamId: boolean }
 
+  const [pendingTeamChange, setPendingTeamChange] = useState(null); // { athleteId, toTeamId, impact }
+
   const scrollViewRef = useRef(null);
   const resetConfirmRef = useRef(null);
+  const teamChangeModalRef = useRef(null);
 
   // Load division-scoped athletes on mount and when division changes
   useEffect(() => {
@@ -155,13 +166,65 @@ const AssignTeamsScreen = () => {
     }
   };
 
-  const handleMoveAthlete = (athleteId, fromTeamId, toTeamId) => {
-    const result = moveAthlete([...teams], athleteId, fromTeamId, toTeamId);
-    
-    if (result.success) {
-      persistTeamsAndNotify(result.teams);
-    } else {
-      Alert.alert('Error', result.error);
+  const applyTeamChange = async ({ athleteId, toTeamId }) => {
+    try {
+      const saved = await reassignAthleteTeam(athleteId, toTeamId, activeDivisionId);
+      await loadTeams();
+      emitForDivision(activeDivisionId, 'teamsUpdated', saved.length);
+    } catch (error) {
+      console.log('Error changing athlete team:', error);
+    }
+  };
+
+  // Moving or removing an athlete also drops them from their team's event
+  // assignments, so check what that would affect before doing it.
+  const requestTeamChange = async (action, athleteId, fromTeamId, toTeamId = null) => {
+    const fromTeam = teams.find(t => t.id === fromTeamId);
+    const athlete = fromTeam?.athletes.find(a => a.id === athleteId);
+    const toTeam = toTeamId != null ? teams.find(t => t.id === toTeamId) : null;
+
+    let participation = null;
+    try {
+      participation = await getAthleteParticipation(athleteId, activeDivisionId);
+    } catch (error) {
+      console.log('Error checking athlete participation:', error);
+    }
+
+    const impact = describeTeamChangeImpact({
+      action,
+      athleteName: athlete?.name || 'This athlete',
+      participation,
+      toTeamName: toTeam?.name,
+    });
+
+    if (!impact.needsConfirm) {
+      await applyTeamChange({ athleteId, toTeamId });
+      return;
+    }
+
+    setPendingTeamChange({ athleteId, toTeamId, impact });
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (teamChangeModalRef.current?.scrollIntoView) {
+        teamChangeModalRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
+  };
+
+  const handleMoveAthlete = (athleteId, fromTeamId, toTeamId) =>
+    requestTeamChange('move', athleteId, fromTeamId, toTeamId);
+
+  const handleRemoveAthlete = (athleteId, fromTeamId) =>
+    requestTeamChange('remove', athleteId, fromTeamId);
+
+  const handleTeamChangeConfirm = async () => {
+    const change = pendingTeamChange;
+    setPendingTeamChange(null);
+    if (change && !change.impact.blocked) {
+      await applyTeamChange(change);
     }
   };
 
@@ -732,7 +795,8 @@ const AssignTeamsScreen = () => {
             <MobileH2 style={styles.sectionTitle}>Team Assignments</MobileH2>
             <TeamList 
               teams={teams} 
-              onMoveAthlete={handleMoveAthlete} 
+              onMoveAthlete={handleMoveAthlete}
+              onRemoveAthlete={handleRemoveAthlete}
               onColorChange={openTeamEditor}
               editable={isEditMode} 
             />
@@ -916,6 +980,32 @@ const AssignTeamsScreen = () => {
               <Pressable style={styles.resetModalButtonConfirm} onPress={handleResetConfirm}>
                 <Text style={styles.resetModalButtonTextConfirm}>Reset</Text>
               </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Move / Remove Athlete Confirmation Modal */}
+      {pendingTeamChange && (
+        <View style={styles.resetModalOverlay}>
+          <View ref={teamChangeModalRef} style={styles.resetModalContent}>
+            <MobileH2 style={styles.resetModalTitle}>{pendingTeamChange.impact.title}</MobileH2>
+            <MobileBody style={styles.resetModalMessage}>
+              {pendingTeamChange.impact.message}
+            </MobileBody>
+            <View style={styles.resetModalButtons}>
+              <Pressable style={styles.resetModalButtonCancel} onPress={() => setPendingTeamChange(null)}>
+                <Text style={styles.resetModalButtonTextCancel}>
+                  {pendingTeamChange.impact.blocked ? 'OK' : 'Cancel'}
+                </Text>
+              </Pressable>
+              {!pendingTeamChange.impact.blocked && (
+                <Pressable style={styles.resetModalButtonConfirm} onPress={handleTeamChangeConfirm}>
+                  <Text style={styles.resetModalButtonTextConfirm}>
+                    {pendingTeamChange.toTeamId != null ? 'Move' : 'Remove'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>

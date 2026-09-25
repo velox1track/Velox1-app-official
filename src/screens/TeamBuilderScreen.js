@@ -19,13 +19,18 @@ import { ButtonPrimary, ButtonSecondary } from '../components';
 import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
+import { useDivision } from '../context/DivisionContext';
+import { getAthleteParticipation } from '../lib/storage';
+import { describeTeamChangeImpact } from '../lib/athleteImpact';
 
 const TeamBuilderScreen = () => {
+  const { activeDivisionId } = useDivision();
   const { athletes, isLoading, persistAthletes, editAthlete, removeAthlete, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [athleteToDelete, setAthleteToDelete] = useState(null);
+  const [deleteParticipation, setDeleteParticipation] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [athleteToEdit, setAthleteToEdit] = useState(null);
   const [editName, setEditName] = useState('');
@@ -49,9 +54,16 @@ const TeamBuilderScreen = () => {
     await persistAthletes(newAthletes);
   };
 
-  const deleteAthlete = (athleteId) => {
+  const deleteAthlete = async (athleteId) => {
     console.log('Delete athlete clicked:', athleteId);
+    let participation = null;
+    try {
+      participation = await getAthleteParticipation(athleteId, activeDivisionId);
+    } catch (error) {
+      console.log('Error checking athlete participation:', error);
+    }
     setAthleteToDelete(athleteId);
+    setDeleteParticipation(participation);
     setShowDeleteConfirm(true);
 
     setTimeout(() => {
@@ -70,13 +82,21 @@ const TeamBuilderScreen = () => {
     await removeAthlete(athleteToDelete);
     setShowDeleteConfirm(false);
     setAthleteToDelete(null);
+    setDeleteParticipation(null);
   };
 
   const handleDeleteCancel = () => {
     console.log('Delete cancelled');
     setShowDeleteConfirm(false);
     setAthleteToDelete(null);
+    setDeleteParticipation(null);
   };
+
+  const deleteImpact = describeTeamChangeImpact({
+    action: 'delete',
+    athleteName: athletes.find(a => a.id === athleteToDelete)?.name || 'this athlete',
+    participation: deleteParticipation,
+  });
 
   const clearAllAthletes = () => {
     console.log('Clear all athletes clicked');
@@ -384,17 +404,19 @@ const TeamBuilderScreen = () => {
       {showDeleteConfirm && (
         <View style={styles.modalOverlay}>
           <View ref={deleteConfirmRef} style={styles.modalContent}>
-            <MobileH2 style={styles.modalTitle}>Delete Athlete</MobileH2>
+            <MobileH2 style={styles.modalTitle}>{deleteImpact.title}</MobileH2>
             <MobileBody style={styles.modalMessage}>
-              Are you sure you want to delete this athlete?
+              {deleteImpact.message}
             </MobileBody>
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalButtonCancel} onPress={handleDeleteCancel}>
-                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+                <Text style={styles.modalButtonTextCancel}>{deleteImpact.blocked ? 'OK' : 'Cancel'}</Text>
               </Pressable>
-              <Pressable style={styles.modalButtonConfirm} onPress={handleDeleteConfirm}>
-                <Text style={styles.modalButtonTextConfirm}>Delete</Text>
-              </Pressable>
+              {!deleteImpact.blocked && (
+                <Pressable style={styles.modalButtonConfirm} onPress={handleDeleteConfirm}>
+                  <Text style={styles.modalButtonTextConfirm}>Delete</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>

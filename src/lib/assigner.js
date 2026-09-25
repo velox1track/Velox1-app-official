@@ -190,34 +190,6 @@ const shuffleArray = (array) => {
   return shuffled;
 };
 
-export const moveAthlete = (teams, athleteId, fromTeamId, toTeamId) => {
-  const fromTeam = teams.find(team => team.id === fromTeamId);
-  const toTeam = teams.find(team => team.id === toTeamId);
-  
-  if (!fromTeam || !toTeam) {
-    return {
-      success: false,
-      error: 'Invalid team ID'
-    };
-  }
-  
-  const athleteIndex = fromTeam.athletes.findIndex(athlete => athlete.id === athleteId);
-  if (athleteIndex === -1) {
-    return {
-      success: false,
-      error: 'Athlete not found in source team'
-    };
-  }
-  
-  const athlete = fromTeam.athletes.splice(athleteIndex, 1)[0];
-  toTeam.athletes.push(athlete);
-  
-  return {
-    success: true,
-    teams: teams
-  };
-};
-
 // Export color utilities for use in other components
 export const getTeamColors = () => TEAM_COLORS;
 

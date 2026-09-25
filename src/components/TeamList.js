@@ -16,7 +16,7 @@ const EditColorButton = ({ onPress }) => (
   </Pressable>
 );
 
-const TeamList = ({ teams, onMoveAthlete, onColorChange, editable = false }) => {
+const TeamList = ({ teams, onMoveAthlete, onRemoveAthlete, onColorChange, editable = false }) => {
   const [expandedTeams, setExpandedTeams] = useState({});
 
   const toggleTeamExpanded = (teamId) => {
@@ -115,6 +115,16 @@ const TeamList = ({ teams, onMoveAthlete, onColorChange, editable = false }) => 
                                 </Pressable>
                               ))}
                           </ScrollView>
+                          {onRemoveAthlete && (
+                            <Pressable
+                              style={styles.removeChip}
+                              onPress={() => onRemoveAthlete(athlete.id, team.id)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove ${athlete.name} from ${team.name}`}
+                            >
+                              <MobileCaption style={styles.removeChipText}>Remove</MobileCaption>
+                            </Pressable>
+                          )}
                         </View>
                       )}
                     </View>
@@ -335,6 +345,18 @@ const styles = StyleSheet.create({
   },
   destChipText: {
     color: styleTokens.colors.textPrimary,
+    fontWeight: '700',
+  },
+  removeChip: {
+    borderWidth: 1,
+    borderColor: styleTokens.colors.danger,
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(6),
+    borderRadius: scale(12),
+    marginLeft: 'auto',
+  },
+  removeChipText: {
+    color: styleTokens.colors.danger,
     fontWeight: '700',
   },
 });
