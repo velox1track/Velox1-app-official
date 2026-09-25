@@ -21,6 +21,7 @@ import { getDefaultEventPool, getSequenceValidationSummary } from '../lib/random
 import { buildScoringPlaces, reconcileScoringWithTeamCount } from '../lib/scoring';
 import { useDivision } from '../context/DivisionContext';
 import SequenceValidationModal from '../components/SequenceValidationModal';
+import { describeClearAthletesImpact } from '../lib/athleteImpact';
 import {
   getActiveDivisionData,
   getAthletes,
@@ -28,6 +29,7 @@ import {
   getEventPool,
   getInfractionsSettings,
   getPlannedTeams,
+  getRosterParticipation,
   getRouletteSettings,
   getScoringSettings,
   getTeams,
@@ -520,9 +522,19 @@ const SettingsScreen = ({ navigation }) => {
     setShowClearAllDataConfirm(false);
   };
 
-  const clearSpecificData = (dataType, key) => {
+  const clearSpecificData = async (dataType, key) => {
     console.log(`Clear specific data button pressed: ${dataType}`);
-    setClearSpecificType({ dataType, key });
+    let athletesImpact = null;
+    if (dataType === 'athletes') {
+      let participation = null;
+      try {
+        participation = await getRosterParticipation(activeDivisionId);
+      } catch (error) {
+        console.log('Error checking roster participation:', error);
+      }
+      athletesImpact = describeClearAthletesImpact(participation);
+    }
+    setClearSpecificType({ dataType, key, athletesImpact });
     setShowClearSpecificConfirm(true);
   };
 
@@ -536,7 +548,11 @@ const SettingsScreen = ({ navigation }) => {
   const handleClearSpecificConfirm = async () => {
     if (!clearSpecificType) return;
 
-    const { dataType } = clearSpecificType;
+    const { dataType, athletesImpact } = clearSpecificType;
+    if (athletesImpact?.blocked) {
+      handleClearSpecificCancel();
+      return;
+    }
     const scope = CLEAR_SCOPE_BY_TYPE[dataType];
     console.log(`Clearing ${dataType} data for active division`);
 
@@ -1371,28 +1387,36 @@ const SettingsScreen = ({ navigation }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>
-              Clear {clearSpecificType && ({
-                athletes: 'Athletes',
-                teams: 'Teams',
-                eventSequence: 'Event Sequence',
-                eventResults: 'Event Results'
-              })[clearSpecificType.dataType]}
+              {clearSpecificType?.athletesImpact
+                ? clearSpecificType.athletesImpact.title
+                : `Clear ${clearSpecificType ? ({
+                    athletes: 'Athletes',
+                    teams: 'Teams',
+                    eventSequence: 'Event Sequence',
+                    eventResults: 'Event Results'
+                  })[clearSpecificType.dataType] : ''}`}
             </MobileH2>
             <MobileBody style={styles.modalMessage}>
-              This will permanently delete all {clearSpecificType && ({
-                athletes: 'athletes',
-                teams: 'teams',
-                eventSequence: 'event sequence data',
-                eventResults: 'event results'
-              })[clearSpecificType.dataType]}. This action cannot be undone.
+              {clearSpecificType?.athletesImpact
+                ? clearSpecificType.athletesImpact.message
+                : `This will permanently delete all ${clearSpecificType ? ({
+                    athletes: 'athletes',
+                    teams: 'teams',
+                    eventSequence: 'event sequence data',
+                    eventResults: 'event results'
+                  })[clearSpecificType.dataType] : ''}. This action cannot be undone.`}
             </MobileBody>
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalButtonCancel} onPress={handleClearSpecificCancel}>
-                <MobileBody style={styles.modalButtonTextCancel}>Cancel</MobileBody>
+                <MobileBody style={styles.modalButtonTextCancel}>
+                  {clearSpecificType?.athletesImpact?.blocked ? 'OK' : 'Cancel'}
+                </MobileBody>
               </Pressable>
-              <Pressable style={[styles.modalButtonConfirm, styles.modalButtonDanger]} onPress={handleClearSpecificConfirm}>
-                <MobileBody style={styles.modalButtonText}>Clear Data</MobileBody>
-              </Pressable>
+              {!clearSpecificType?.athletesImpact?.blocked && (
+                <Pressable style={[styles.modalButtonConfirm, styles.modalButtonDanger]} onPress={handleClearSpecificConfirm}>
+                  <MobileBody style={styles.modalButtonText}>Clear Data</MobileBody>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>

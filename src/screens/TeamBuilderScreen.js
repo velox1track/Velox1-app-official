@@ -20,14 +20,15 @@ import { styleTokens } from '../theme';
 import { scale } from '../utils/scale';
 import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
 import { useDivision } from '../context/DivisionContext';
-import { getAthleteParticipation } from '../lib/storage';
-import { buildReplacementPrompt, describeTeamChangeImpact } from '../lib/athleteImpact';
+import { getAthleteParticipation, getRosterParticipation } from '../lib/storage';
+import { buildReplacementPrompt, describeClearAthletesImpact, describeTeamChangeImpact } from '../lib/athleteImpact';
 
 const TeamBuilderScreen = ({ navigation }) => {
   const { activeDivisionId } = useDivision();
   const { athletes, isLoading, persistAthletes, editAthlete, removeAthlete, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [clearAllImpact, setClearAllImpact] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [athleteToDelete, setAthleteToDelete] = useState(null);
   const [deleteParticipation, setDeleteParticipation] = useState(null);
@@ -129,8 +130,15 @@ const TeamBuilderScreen = ({ navigation }) => {
     participation: deleteParticipation,
   });
 
-  const clearAllAthletes = () => {
+  const clearAllAthletes = async () => {
     console.log('Clear all athletes clicked');
+    let participation = null;
+    try {
+      participation = await getRosterParticipation(activeDivisionId);
+    } catch (error) {
+      console.log('Error checking roster participation:', error);
+    }
+    setClearAllImpact(describeClearAthletesImpact(participation));
     setShowClearAllConfirm(true);
 
     setTimeout(() => {
@@ -336,17 +344,19 @@ const TeamBuilderScreen = ({ navigation }) => {
       {showClearAllConfirm && (
         <View style={styles.modalOverlay}>
           <View ref={clearAllConfirmRef} style={styles.modalContent}>
-            <MobileH2 style={styles.modalTitle}>Clear All Athletes</MobileH2>
+            <MobileH2 style={styles.modalTitle}>{clearAllImpact?.title}</MobileH2>
             <MobileBody style={styles.modalMessage}>
-              Are you sure you want to delete all athletes? This action cannot be undone.
+              {clearAllImpact?.message}
             </MobileBody>
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalButtonCancel} onPress={handleClearAllCancel}>
-                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+                <Text style={styles.modalButtonTextCancel}>{clearAllImpact?.blocked ? 'OK' : 'Cancel'}</Text>
               </Pressable>
-              <Pressable style={styles.modalButtonConfirm} onPress={handleClearAllConfirm}>
-                <Text style={styles.modalButtonTextConfirm}>Clear All</Text>
-              </Pressable>
+              {!clearAllImpact?.blocked && (
+                <Pressable style={styles.modalButtonConfirm} onPress={handleClearAllConfirm}>
+                  <Text style={styles.modalButtonTextConfirm}>Clear All</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>

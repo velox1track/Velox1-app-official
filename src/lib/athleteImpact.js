@@ -58,6 +58,35 @@ export const describeTeamChangeImpact = ({ action, athleteName, participation, t
 };
 
 /**
+ * Clearing the whole roster follows the same rule as deleting one athlete:
+ * blocked if anyone ran in a scored event. `participation` comes from
+ * getRosterParticipation. Returns { blocked, title, message }.
+ */
+export const describeClearAthletesImpact = (participation) => {
+  const { teamsWithAthletes = 0, scoredEvents = [], unscoredEvents = [] } = participation || {};
+
+  if (scoredEvents.length > 0) {
+    const hasHave = scoredEvents.length === 1 ? 'has' : 'have';
+    return {
+      blocked: true,
+      title: "Can't Clear Athletes",
+      message:
+        `Athletes ran in ${listEvents(scoredEvents)}, which already ${hasHave} recorded results, ` +
+        `so the athlete list can't be cleared. To change this, reset results in the Scoreboard first.`,
+    };
+  }
+
+  const lines = ['Are you sure you want to delete all athletes? This action cannot be undone.'];
+  if (teamsWithAthletes > 0) {
+    lines.push('They will also be removed from every team. The teams themselves will stay.');
+  }
+  if (unscoredEvents.length > 0) {
+    lines.push(`These events will need new runners: ${listEvents(unscoredEvents)}.`);
+  }
+  return { blocked: false, title: 'Clear All Athletes', message: lines.join('\n\n') };
+};
+
+/**
  * After a delete/remove/move that left a team without a runner, build the
  * "Assign now / Later" prompt. Returns null when nothing needs replacing.
  * "Assign now" targets the earliest affected event.

@@ -144,12 +144,38 @@ export const createDivisionMeta = (name) => ({
 /**
  * Applies a scoped reset to division data in memory.
  */
+/**
+ * Remove matching athletes from every event assignment. Lane entries keep
+ * their lane number (athlete cleared) so a replacement inherits the team's
+ * lane. The Team Not Running marker is never treated as an athlete.
+ */
+export const stripAthletesFromAssignments = (eventAssignments, isMatch) => {
+  const matchesAthlete = (id) => id != null && id !== 'NOT_RUNNING' && isMatch(id);
+  return (eventAssignments || []).map((record) => {
+    const next = {
+      ...record,
+      assignments: (record.assignments || []).map((ta) => ({
+        ...ta,
+        athleteIds: (ta.athleteIds || []).filter((aid) => !matchesAthlete(aid)),
+      })),
+    };
+    if (Array.isArray(record.laneAssignments)) {
+      next.laneAssignments = record.laneAssignments.map((la) =>
+        matchesAthlete(la.athleteId) ? { ...la, athleteId: null, athleteName: null } : la
+      );
+    }
+    return next;
+  });
+};
+
 export const applyResetScope = (divisionData, scope) => {
   const next = deepClone(divisionData || createDefaultDivisionData());
 
   switch (scope) {
     case RESET_SCOPES.ATHLETES:
       next.athletes = [];
+      next.teams = (next.teams || []).map((team) => ({ ...team, athletes: [] }));
+      next.eventAssignments = stripAthletesFromAssignments(next.eventAssignments, () => true);
       break;
     case RESET_SCOPES.TEAMS:
       next.teams = [];
@@ -178,6 +204,8 @@ export const applyResetScope = (divisionData, scope) => {
       next.eventSequence = [];
       next.revealedIndex = '0';
       next.eventResults = [];
+      next.eventAssignments = [];
+      next.pendingLaneEventIndex = null;
       break;
     default:
       throw new Error(`Unknown reset scope: ${scope}`);

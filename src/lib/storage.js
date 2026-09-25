@@ -16,6 +16,7 @@ import {
   extractDivisionConfig,
   isDuplicateDivisionName,
   normalizeDivisionName,
+  stripAthletesFromAssignments,
 } from './division';
 
 export const META_STORAGE_KEY = 'velox.divisions';
@@ -289,24 +290,21 @@ export const updateAthlete = async (updatedAthlete, divisionId = null) => {
 const athleteIdMatcher = (athleteId) => (candidateId) =>
   candidateId != null && String(candidateId) === String(athleteId);
 
-// Lane entries keep their lane number so a replacement athlete inherits the
-// team's lane.
-const stripAthleteFromAssignments = (eventAssignments, isMatch) =>
-  (eventAssignments || []).map((record) => {
-    const next = {
-      ...record,
-      assignments: (record.assignments || []).map((ta) => ({
-        ...ta,
-        athleteIds: (ta.athleteIds || []).filter((aid) => !isMatch(aid)),
-      })),
-    };
-    if (Array.isArray(record.laneAssignments)) {
-      next.laneAssignments = record.laneAssignments.map((la) =>
-        isMatch(la.athleteId) ? { ...la, athleteId: null, athleteName: null } : la
-      );
-    }
-    return next;
+const splitEventsByScored = (data, isMatch) => {
+  const results = Array.isArray(data.eventResults) ? data.eventResults : [];
+  const scoredEvents = [];
+  const unscoredEvents = [];
+  (data.eventAssignments || []).forEach((record) => {
+    const assigned = (record.assignments || []).some((ta) =>
+      (ta.athleteIds || []).some((aid) => aid !== 'NOT_RUNNING' && isMatch(aid))
+    );
+    if (!assigned) return;
+    const entry = { eventIndex: record.eventIndex, eventName: record.eventName };
+    const scored = results.some((r) => r.eventIndex === record.eventIndex);
+    (scored ? scoredEvents : unscoredEvents).push(entry);
   });
+  return { scoredEvents, unscoredEvents };
+};
 
 /**
  * Where an athlete currently stands: their team, and the events they're
@@ -318,19 +316,15 @@ export const getAthleteParticipation = async (athleteId, divisionId = null) => {
   const isMatch = athleteIdMatcher(athleteId);
 
   const team = (data.teams || []).find((t) => (t.athletes || []).some((a) => isMatch(a.id))) || null;
-  const results = Array.isArray(data.eventResults) ? data.eventResults : [];
+  return { team, ...splitEventsByScored(data, isMatch) };
+};
 
-  const scoredEvents = [];
-  const unscoredEvents = [];
-  (data.eventAssignments || []).forEach((record) => {
-    const assigned = (record.assignments || []).some((ta) => (ta.athleteIds || []).some(isMatch));
-    if (!assigned) return;
-    const entry = { eventIndex: record.eventIndex, eventName: record.eventName };
-    const scored = results.some((r) => r.eventIndex === record.eventIndex);
-    (scored ? scoredEvents : unscoredEvents).push(entry);
-  });
-
-  return { team, scoredEvents, unscoredEvents };
+/** Same as getAthleteParticipation, but for clearing the whole roster at once. */
+export const getRosterParticipation = async (divisionId = null) => {
+  const id = await resolveDivisionId(divisionId);
+  const data = await getDivisionData(id);
+  const teamsWithAthletes = (data.teams || []).filter((t) => (t.athletes || []).length > 0).length;
+  return { teamsWithAthletes, ...splitEventsByScored(data, () => true) };
 };
 
 /**
@@ -347,7 +341,7 @@ export const removeAthlete = async (athleteId, divisionId = null) => {
     ...team,
     athletes: (team.athletes || []).filter((a) => !isMatch(a.id)),
   }));
-  const eventAssignments = stripAthleteFromAssignments(data.eventAssignments, isMatch);
+  const eventAssignments = stripAthletesFromAssignments(data.eventAssignments, isMatch);
 
   const merged = await updateDivisionData(id, { athletes, teams, eventAssignments });
   return merged.athletes || [];
@@ -373,7 +367,7 @@ export const reassignAthleteTeam = async (athleteId, toTeamId = null, divisionId
     if (toTeamId != null && String(team.id) === String(toTeamId)) athletes.push(athlete);
     return { ...team, athletes };
   });
-  const eventAssignments = stripAthleteFromAssignments(data.eventAssignments, isMatch);
+  const eventAssignments = stripAthletesFromAssignments(data.eventAssignments, isMatch);
 
   const merged = await updateDivisionData(id, { teams, eventAssignments });
   return merged.teams || [];
