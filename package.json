@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "build:web": "expo export --platform web --output-dir dist",
     "serve:web": "npx http-server ./dist -p 8080 -c-1 --cors",
-    "deploy": "expo export --platform web --output-dir dist && eas deploy --dir dist"
+    "deploy": "expo export --platform web --output-dir dist && eas deploy --export-dir dist"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
