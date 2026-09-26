@@ -719,11 +719,16 @@ const AssignTeamsScreen = ({ navigation }) => {
           </View>
 
           <View style={styles.infoRow}>
-            <Pressable onPress={openCheckInManager} accessibilityRole="button" style={styles.checkInInfo}>
-              <MobileCaption style={styles.infoText}>
-                Checked In: {checkedInAthletes.length} of {athletes.length}
+            <Pressable
+              onPress={openCheckInManager}
+              accessibilityRole="button"
+              accessibilityLabel="Manage check-in"
+              style={({ pressed }) => [styles.checkInPill, pressed && styles.checkInPillPressed]}
+            >
+              <MobileCaption style={styles.checkInPillText}>
+                ✓ {checkedInAthletes.length} of {athletes.length} checked in
               </MobileCaption>
-              <MobileCaption style={styles.checkInManageLink}>Manage</MobileCaption>
+              <MobileCaption style={styles.checkInPillAction}>Manage ›</MobileCaption>
             </Pressable>
             <MobileCaption style={styles.infoText}>Current Teams: {teams.length}</MobileCaption>
           </View>
@@ -1278,6 +1283,7 @@ const styles = StyleSheet.create({
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: scale(16),
     flexWrap: 'wrap',
     gap: scale(8),
@@ -1285,15 +1291,27 @@ const styles = StyleSheet.create({
   infoText: {
     color: styleTokens.colors.textSecondary,
   },
-  checkInInfo: {
+  checkInPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(8),
+    gap: scale(10),
+    backgroundColor: styleTokens.colors.primaryDark,
+    borderWidth: 1,
+    borderColor: styleTokens.colors.primary,
+    borderRadius: scale(20),
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(8),
   },
-  checkInManageLink: {
+  checkInPillPressed: {
+    opacity: 0.8,
+  },
+  checkInPillText: {
+    color: styleTokens.colors.white,
+    fontWeight: '700',
+  },
+  checkInPillAction: {
     color: styleTokens.colors.primary,
     fontWeight: '700',
-    textDecorationLine: 'underline',
   },
   checkInManagerContent: {
     maxHeight: '85%',
