@@ -113,8 +113,14 @@ export const assignTeams = (athletes, numTeams) => {
         });
         selectedTeam = teamsNeedingBase[0];
       } else if (teamsForExtras.length > 0 && assignedCounts.filter(c => c > baseSize).length < extraAthletes) {
-        // All teams at base size, assign extras to teams with lowest scores
+        // All teams at base size. Extras go to the smallest team overall first:
+        // each gender is placed separately, so without this the extra male and
+        // extra female both land on the same weakest team and it ends up two
+        // athletes bigger. Talent only breaks ties.
         teamsForExtras.sort((a, b) => {
+          if (a.team.athletes.length !== b.team.athletes.length) {
+            return a.team.athletes.length - b.team.athletes.length;
+          }
           if (a.genderTalentScore !== b.genderTalentScore) {
             return a.genderTalentScore - b.genderTalentScore;
           }
