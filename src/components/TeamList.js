@@ -16,7 +16,8 @@ const EditColorButton = ({ onPress }) => (
   </Pressable>
 );
 
-const TeamList = ({ teams, onMoveAthlete, onRemoveAthlete, onColorChange, editable = false }) => {
+// checkedInIds: optional Set of roster ids; athletes not in it are flagged.
+const TeamList = ({ teams, onMoveAthlete, onRemoveAthlete, onColorChange, editable = false, checkedInIds }) => {
   const [expandedTeams, setExpandedTeams] = useState({});
 
   const toggleTeamExpanded = (teamId) => {
@@ -79,11 +80,16 @@ const TeamList = ({ teams, onMoveAthlete, onRemoveAthlete, onColorChange, editab
                 <MobileCaption style={styles.noAthletes}>No athletes assigned</MobileCaption>
               ) : (
                 <View style={styles.athletesList}>
-                  {team.athletes.map((athlete) => (
-                    <View key={athlete.id} style={styles.athleteItem}>
+                  {team.athletes.map((athlete) => {
+                    const notCheckedIn = checkedInIds && !checkedInIds.has(athlete.id);
+                    return (
+                    <View key={athlete.id} style={[styles.athleteItem, notCheckedIn && styles.athleteItemNotCheckedIn]}>
                       <View style={styles.athleteInfo}>
                         <MobileBody style={styles.athleteName} numberOfLines={1} ellipsizeMode="tail">{athlete.name}</MobileBody>
                         <View style={styles.badgeContainer}>
+                          {notCheckedIn && (
+                            <MobileCaption style={styles.notCheckedInTag}>Not checked in</MobileCaption>
+                          )}
                           {athlete.gender && (
                             <Text style={athlete.gender === 'Male' ? styles.genderMaleLabel : styles.genderFemaleLabel}>
                               {athlete.gender === 'Male' ? 'M' : 'F'}
@@ -128,7 +134,8 @@ const TeamList = ({ teams, onMoveAthlete, onRemoveAthlete, onColorChange, editab
                         </View>
                       )}
                     </View>
-                  ))}
+                    );
+                  })}
                 </View>
               )
             )}
@@ -346,6 +353,14 @@ const styles = StyleSheet.create({
   destChipText: {
     color: styleTokens.colors.textPrimary,
     fontWeight: '700',
+  },
+  athleteItemNotCheckedIn: {
+    opacity: 0.55,
+  },
+  notCheckedInTag: {
+    color: styleTokens.colors.warning,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   removeChip: {
     borderWidth: 1,

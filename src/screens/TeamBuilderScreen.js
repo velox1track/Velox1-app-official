@@ -21,14 +21,16 @@ import { scale } from '../utils/scale';
 import { useDivisionAthletes } from '../hooks/useDivisionAthletes';
 import { useDivision } from '../context/DivisionContext';
 import { getAthleteParticipation, getRosterParticipation } from '../lib/storage';
+import { isCheckedIn } from '../lib/division';
 import { buildReplacementPrompt, describeClearAthletesImpact, describeTeamChangeImpact } from '../lib/athleteImpact';
 
 const TeamBuilderScreen = ({ navigation }) => {
   const { activeDivisionId } = useDivision();
-  const { athletes, isLoading, persistAthletes, editAthlete, removeAthlete, wipeAthletes } = useDivisionAthletes();
+  const { athletes, isLoading, persistAthletes, editAthlete, removeAthlete, setCheckedIn, wipeAthletes } = useDivisionAthletes();
   const [showCSVImporter, setShowCSVImporter] = useState(false);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const [clearAllImpact, setClearAllImpact] = useState(null);
+  const [showClearCheckInsConfirm, setShowClearCheckInsConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [athleteToDelete, setAthleteToDelete] = useState(null);
   const [deleteParticipation, setDeleteParticipation] = useState(null);
@@ -45,6 +47,7 @@ const TeamBuilderScreen = ({ navigation }) => {
   const editModalRef = useRef(null);
   const deleteConfirmRef = useRef(null);
   const replacementPromptRef = useRef(null);
+  const clearCheckInsRef = useRef(null);
 
   const addAthlete = async (athlete) => {
     const newAthletes = [...athletes, athlete];
@@ -203,6 +206,26 @@ const TeamBuilderScreen = ({ navigation }) => {
     setAthleteToEdit(null);
   };
 
+  const checkedInCount = athletes.filter(isCheckedIn).length;
+
+  const openClearCheckIns = () => {
+    setShowClearCheckInsConfirm(true);
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (clearCheckInsRef.current?.scrollIntoView) {
+        clearCheckInsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
+  };
+
+  const handleClearCheckInsConfirm = async () => {
+    await setCheckedIn(athletes.map(a => a.id), false);
+    setShowClearCheckInsConfirm(false);
+  };
+
   const getTierCount = (tier) => {
     return athletes.filter(athlete => athlete.tier === tier).length;
   };
@@ -258,6 +281,31 @@ const TeamBuilderScreen = ({ navigation }) => {
             )}
           </View>
 
+          {/* Check-in Summary */}
+          {athletes.length > 0 && (
+            <View style={styles.checkInSummary}>
+              <MobileBody style={styles.checkInSummaryText}>
+                Checked in: {checkedInCount} of {athletes.length}
+              </MobileBody>
+              <View style={styles.checkInSummaryButtons}>
+                {checkedInCount < athletes.length && (
+                  <Pressable
+                    style={styles.checkInButton}
+                    onPress={() => setCheckedIn(athletes.map(a => a.id), true)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.checkInButtonText}>Check in all</Text>
+                  </Pressable>
+                )}
+                {checkedInCount > 0 && (
+                  <Pressable style={styles.deleteActionButton} onPress={openClearCheckIns} accessibilityRole="button">
+                    <Text style={styles.deleteActionButtonText}>Clear check-ins</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          )}
+
           {/* Tier Summary */}
           {athletes.length > 0 && (
             <View style={styles.tierSummary}>
@@ -307,7 +355,7 @@ const TeamBuilderScreen = ({ navigation }) => {
           ) : (
             <View style={styles.athletesList}>
               {athletes.map((athlete) => (
-                <View key={athlete.id} style={styles.athleteCard}>
+                <View key={athlete.id} style={[styles.athleteCard, !isCheckedIn(athlete) && styles.athleteCardNotCheckedIn]}>
                   <View style={styles.athleteInfo}>
                     <Text style={styles.athleteName} numberOfLines={1} ellipsizeMode="tail">{athlete.name}</Text>
                     <View style={styles.badgeContainer}>
@@ -325,6 +373,16 @@ const TeamBuilderScreen = ({ navigation }) => {
                     <MobileCaption style={styles.bestEvents} numberOfLines={2}>{athlete.bestEvents}</MobileCaption>
                   )}
                   <View style={styles.cardActions}>
+                    <Pressable
+                      style={[styles.checkInButton, isCheckedIn(athlete) && styles.checkInButtonActive]}
+                      onPress={() => setCheckedIn([athlete.id], !isCheckedIn(athlete))}
+                      accessibilityRole="button"
+                      accessibilityLabel={isCheckedIn(athlete) ? `Undo check-in for ${athlete.name}` : `Check in ${athlete.name}`}
+                    >
+                      <Text style={[styles.checkInButtonText, isCheckedIn(athlete) && styles.checkInButtonTextActive]}>
+                        {isCheckedIn(athlete) ? '✓ Checked in' : 'Check in'}
+                      </Text>
+                    </Pressable>
                     <Pressable style={styles.editButton} onPress={() => openEditModal(athlete)}>
                       <Text style={styles.editButtonText}>Edit</Text>
                     </Pressable>
@@ -458,6 +516,26 @@ const TeamBuilderScreen = ({ navigation }) => {
                   <Text style={styles.modalButtonTextConfirm}>Delete</Text>
                 </Pressable>
               )}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Clear Check-ins Confirmation Modal */}
+      {showClearCheckInsConfirm && (
+        <View style={styles.modalOverlay}>
+          <View ref={clearCheckInsRef} style={styles.modalContent}>
+            <MobileH2 style={styles.modalTitle}>Clear Check-ins</MobileH2>
+            <MobileBody style={styles.modalMessage}>
+              Mark all {athletes.length} athletes as not checked in? Use this when starting a new meet. Athletes stay in your list and on their teams.
+            </MobileBody>
+            <View style={styles.modalButtons}>
+              <Pressable style={styles.modalButtonCancel} onPress={() => setShowClearCheckInsConfirm(false)}>
+                <Text style={styles.modalButtonTextCancel}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.modalButtonConfirm} onPress={handleClearCheckInsConfirm}>
+                <Text style={styles.modalButtonTextConfirm}>Clear</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -728,6 +806,51 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: scale(8),
     justifyContent: 'flex-end',
+  },
+  athleteCardNotCheckedIn: {
+    borderLeftColor: styleTokens.colors.disabled,
+  },
+  checkInButton: {
+    marginRight: 'auto',
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(8),
+    borderRadius: scale(5),
+    borderWidth: 1.5,
+    borderColor: styleTokens.colors.white,
+    backgroundColor: styleTokens.colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: scale(36),
+  },
+  checkInButtonActive: {
+    backgroundColor: styleTokens.colors.primary,
+    borderColor: styleTokens.colors.primary,
+  },
+  checkInButtonText: {
+    color: styleTokens.colors.textPrimary,
+    fontSize: scale(13),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  checkInButtonTextActive: {
+    color: styleTokens.colors.white,
+  },
+  checkInSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: scale(8),
+    marginBottom: scale(12),
+  },
+  checkInSummaryText: {
+    color: styleTokens.colors.textPrimary,
+    fontWeight: '700',
+  },
+  checkInSummaryButtons: {
+    flexDirection: 'row',
+    gap: scale(8),
   },
   editButton: {
     paddingHorizontal: scale(20),

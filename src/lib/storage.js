@@ -373,6 +373,16 @@ export const reassignAthleteTeam = async (athleteId, toTeamId = null, divisionId
   return merged.teams || [];
 };
 
+/** Set the checked-in status for the given athletes. Returns the saved athlete list. */
+export const setAthletesCheckedIn = async (athleteIds, checkedIn, divisionId = null) => {
+  const id = await resolveDivisionId(divisionId);
+  const data = await getDivisionData(id);
+  const ids = new Set((athleteIds || []).map(String));
+  const athletes = (data.athletes || []).map((a) => (ids.has(String(a.id)) ? { ...a, checkedIn } : a));
+  const merged = await updateDivisionData(id, { athletes });
+  return merged.athletes || [];
+};
+
 /** Clear athletes for a division (defaults to active). */
 export const clearAthletes = async (divisionId = null) => {
   const id = await resolveDivisionId(divisionId);

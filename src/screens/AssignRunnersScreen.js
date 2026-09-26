@@ -23,7 +23,8 @@ import {
   preserveLanesByTeam
 } from '../lib/eventAssignments';
 import { useDivision } from '../context/DivisionContext';
-import { getTeams, setPendingLaneEventIndex, getEligibilitySettings } from '../lib/storage';
+import { getAthletes, getTeams, setPendingLaneEventIndex, getEligibilitySettings } from '../lib/storage';
+import { isCheckedIn } from '../lib/division';
 
 const AssignRunnersScreen = ({ route, navigation }) => {
   const { activeDivisionId } = useDivision();
@@ -39,6 +40,7 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [teamSelections, setTeamSelections] = useState({}); // {teamId: [athleteIds]}
   const [usedAthleteIds, setUsedAthleteIds] = useState([]);
+  const [checkedInIds, setCheckedInIds] = useState(new Set());
   const [allowIndividualPlusRelay, setAllowIndividualPlusRelay] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -68,12 +70,14 @@ const AssignRunnersScreen = ({ route, navigation }) => {
     try {
       setIsLoading(true);
 
-      const [teamsData, assignmentsData, eligibilitySettings] = await Promise.all([
+      const [teamsData, assignmentsData, eligibilitySettings, roster] = await Promise.all([
         getTeams(activeDivisionId),
         loadEventAssignments(activeDivisionId),
         getEligibilitySettings(activeDivisionId),
+        getAthletes(activeDivisionId),
       ]);
       setTeams(teamsData);
+      setCheckedInIds(new Set(roster.filter(isCheckedIn).map((a) => a.id)));
       setAssignments(assignmentsData);
       setAllowIndividualPlusRelay(eligibilitySettings.allowIndividualPlusRelay);
 
@@ -121,12 +125,14 @@ const AssignRunnersScreen = ({ route, navigation }) => {
   };
 
   const handleAthleteToggle = (teamId, athleteId) => {
-    // Don't allow toggling used athletes (unless they're currently selected for this event)
+    // Don't allow toggling used or not-checked-in athletes (unless they're
+    // currently selected for this event, so they can still be deselected)
     const isCurrentlySelected = (teamSelections[teamId] || []).includes(athleteId);
     const isUsedElsewhere = usedAthleteIds.includes(athleteId) && !isCurrentlySelected;
-    
-    if (isUsedElsewhere) {
-      return; // Don't allow selection of used athletes
+    const isNotCheckedIn = !checkedInIds.has(athleteId) && !isCurrentlySelected;
+
+    if (isUsedElsewhere || isNotCheckedIn) {
+      return;
     }
     
     setTeamSelections(prev => {
@@ -534,17 +540,19 @@ const AssignRunnersScreen = ({ route, navigation }) => {
                 {availableAthletes.map(athlete => {
                   const isSelected = (teamSelections[selectedTeamId] || []).includes(athlete.id);
                   const isUsedElsewhere = usedAthleteIds.includes(athlete.id) && !isSelected;
-                  
+                  const isNotCheckedIn = !checkedInIds.has(athlete.id) && !isSelected;
+                  const isUnavailable = isUsedElsewhere || isNotCheckedIn;
+
                   return (
                     <Pressable
                       key={athlete.id}
                       style={[
                         styles.athleteRow,
                         isSelected && styles.athleteRowSelected,
-                        isUsedElsewhere && styles.athleteRowUsed
+                        isUnavailable && styles.athleteRowUsed
                       ]}
                       onPress={() => handleAthleteToggle(selectedTeamId, athlete.id)}
-                      disabled={isUsedElsewhere}
+                      disabled={isUnavailable}
                     >
                       <View style={[
                         styles.athleteCheckbox,
@@ -557,7 +565,7 @@ const AssignRunnersScreen = ({ route, navigation }) => {
                           <MobileBody
                             style={[
                               styles.athleteName,
-                              isUsedElsewhere && styles.athleteNameUsed,
+                              isUnavailable && styles.athleteNameUsed,
                             ]}
                             numberOfLines={1}
                             ellipsizeMode="tail"
@@ -571,8 +579,7 @@ const AssignRunnersScreen = ({ route, navigation }) => {
                           )}
                         </View>
                         <MobileCaption style={styles.athleteTier}>
-                          {athlete.tier} Tier
-                          {athlete.bestEvents && ` • ${athlete.bestEvents}`}
+                          {isNotCheckedIn ? 'Not checked in' : `${athlete.tier} Tier${athlete.bestEvents ? ` • ${athlete.bestEvents}` : ''}`}
                         </MobileCaption>
                       </View>
                     </Pressable>

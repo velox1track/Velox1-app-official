@@ -145,6 +145,14 @@ export const createDivisionMeta = (name) => ({
  * Applies a scoped reset to division data in memory.
  */
 /**
+ * Check-in status lives on the roster copy of an athlete (team copies may be
+ * stale), so look athletes up in the roster before calling this. Athletes
+ * start not checked in; only checked-in athletes are used by the team
+ * generators and can be picked for events.
+ */
+export const isCheckedIn = (athlete) => athlete?.checkedIn === true;
+
+/**
  * Remove matching athletes from every event assignment. Lane entries keep
  * their lane number (athlete cleared) so a replacement inherits the team's
  * lane. The Team Not Running marker is never treated as an athlete.

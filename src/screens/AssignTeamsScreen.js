@@ -23,9 +23,11 @@ import {
   getAthletes,
   getEventResults,
   reassignAthleteTeam,
+  setAthletesCheckedIn,
   updateActiveDivisionData,
 } from '../lib/storage';
 import { useDivisionTeams } from '../hooks/useDivisionTeams';
+import { isCheckedIn } from '../lib/division';
 import { buildReplacementPrompt, describeTeamChangeImpact, describeTeamResetBlocked } from '../lib/athleteImpact';
 
 const AssignTeamsScreen = ({ navigation }) => {
@@ -49,7 +51,7 @@ const AssignTeamsScreen = ({ navigation }) => {
   const [editedTeamColor, setEditedTeamColor] = useState('');
   const [availableColors] = useState(getTeamColors());
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resetBlockedImpact, setResetBlockedImpact] = useState(null);
+  const [resetNotice, setResetNotice] = useState(null);
   
   // Manual assignment mode states
   const [assignmentMode, setAssignmentMode] = useState('auto'); // 'auto' or 'manual'
@@ -59,11 +61,13 @@ const AssignTeamsScreen = ({ navigation }) => {
 
   const [pendingTeamChange, setPendingTeamChange] = useState(null); // { athleteId, toTeamId, impact, replacement }
   const [replacementPrompt, setReplacementPrompt] = useState(null);
+  const [showCheckInManager, setShowCheckInManager] = useState(false);
 
   const scrollViewRef = useRef(null);
   const resetConfirmRef = useRef(null);
   const teamChangeModalRef = useRef(null);
   const replacementPromptRef = useRef(null);
+  const checkInManagerRef = useRef(null);
 
   // Load division-scoped athletes on mount and when division changes
   useEffect(() => {
@@ -148,18 +152,29 @@ const AssignTeamsScreen = ({ navigation }) => {
       return;
     }
 
+    if (checkedInAthletes.length === 0) {
+      openResetModal({
+        title: 'No Athletes Checked In',
+        message: 'Only checked-in athletes are placed on teams. Check athletes in on Team Builder, or tap Manage above to check them in here.',
+      });
+      return;
+    }
+
     const num = parseInt(numTeams);
     if (num < 1) {
       Alert.alert('Invalid Input', 'Number of teams must be at least 1.');
       return;
     }
 
-    if (num > athletes.length) {
-      Alert.alert('Too Many Teams', `Cannot create ${num} teams with only ${athletes.length} athletes.`);
+    if (num > checkedInAthletes.length) {
+      openResetModal({
+        title: 'Too Many Teams',
+        message: `Can't create ${num} teams with only ${checkedInAthletes.length} checked-in athletes. Check in more athletes or lower the team count.`,
+      });
       return;
     }
 
-    const result = assignTeams(athletes, num);
+    const result = assignTeams(checkedInAthletes, num);
     
     if (result.success) {
       persistTeamsAndNotify(result.teams);
@@ -326,8 +341,10 @@ const AssignTeamsScreen = ({ navigation }) => {
     openResetModal((await resultsExist()) ? describeTeamResetBlocked('reset') : null);
   };
 
-  const openResetModal = (blockedImpact) => {
-    setResetBlockedImpact(blockedImpact);
+  // notice: null for the normal reset confirm, or { title, message } to show
+  // an OK-only message instead (blocked reset, nobody checked in, etc.).
+  const openResetModal = (notice) => {
+    setResetNotice(notice);
     setShowResetConfirm(true);
 
     setTimeout(() => {
@@ -343,7 +360,7 @@ const AssignTeamsScreen = ({ navigation }) => {
 
   const handleResetConfirm = async () => {
     console.log('Confirming reset teams');
-    if (resetBlockedImpact) {
+    if (resetNotice) {
       setShowResetConfirm(false);
       return;
     }
@@ -445,6 +462,33 @@ const AssignTeamsScreen = ({ navigation }) => {
     return athletes.filter(a => !assignedIds.has(a.id));
   };
 
+  const checkedInAthletes = athletes.filter(isCheckedIn);
+  const checkedInIds = new Set(checkedInAthletes.map(a => a.id));
+
+  const setCheckedIn = async (athleteIds, checkedIn) => {
+    try {
+      const saved = await setAthletesCheckedIn(athleteIds, checkedIn, activeDivisionId);
+      setAthletes(saved);
+      // Athletes no longer checked in can't stay selected for manual assignment.
+      if (!checkedIn) setSelectedAthletes(prev => prev.filter(id => !athleteIds.includes(id)));
+    } catch (error) {
+      console.log('Error updating check-in:', error);
+    }
+  };
+
+  const openCheckInManager = () => {
+    setShowCheckInManager(true);
+    setTimeout(() => {
+      // scrollIntoView is the most reliable cross-browser approach for web/PWA
+      if (checkInManagerRef.current?.scrollIntoView) {
+        checkInManagerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Native fallback
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 300);
+  };
+
   const switchToManualMode = () => {
     if (teams.length > 0) {
       // Teams already exist, just switch mode and keep them
@@ -483,8 +527,8 @@ const AssignTeamsScreen = ({ navigation }) => {
   };
 
   const fillTeamsRandomly = () => {
-    const unassignedAthletes = getUnassignedAthletes();
-    
+    const unassignedAthletes = getUnassignedAthletes().filter(isCheckedIn);
+
     if (unassignedAthletes.length === 0) {
       Alert.alert('No Athletes Available', 'All athletes have been assigned to teams.');
       return;
@@ -599,8 +643,8 @@ const AssignTeamsScreen = ({ navigation }) => {
   };
 
   const getTeamSize = () => {
-    if (athletes.length === 0 || teams.length === 0) return 0;
-    return Math.ceil(athletes.length / teams.length);
+    if (checkedInAthletes.length === 0 || teams.length === 0) return 0;
+    return Math.ceil(checkedInAthletes.length / teams.length);
   };
 
   const plannedTeamsCount = parseInt(numTeams || '0');
@@ -675,7 +719,12 @@ const AssignTeamsScreen = ({ navigation }) => {
           </View>
 
           <View style={styles.infoRow}>
-            <MobileCaption style={styles.infoText}>Available Athletes: {athletes.length}</MobileCaption>
+            <Pressable onPress={openCheckInManager} accessibilityRole="button" style={styles.checkInInfo}>
+              <MobileCaption style={styles.infoText}>
+                Checked In: {checkedInAthletes.length} of {athletes.length}
+              </MobileCaption>
+              <MobileCaption style={styles.checkInManageLink}>Manage</MobileCaption>
+            </Pressable>
             <MobileCaption style={styles.infoText}>Current Teams: {teams.length}</MobileCaption>
           </View>
 
@@ -786,14 +835,17 @@ const AssignTeamsScreen = ({ navigation }) => {
                 Select Athletes ({selectedAthletes.length} selected):
               </MobileBody>
               <ScrollView style={styles.athleteSelectionList}>
-                {getUnassignedAthletes().map(athlete => (
+                {/* Checked-in athletes first; not-checked-in ones stay visible but can't be picked */}
+                {[...getUnassignedAthletes()].sort((a, b) => isCheckedIn(b) - isCheckedIn(a)).map(athlete => (
                   <Pressable
                     key={athlete.id}
                     style={[
                       styles.athleteSelectionItem,
-                      selectedAthletes.includes(athlete.id) && styles.athleteSelectionItemActive
+                      selectedAthletes.includes(athlete.id) && styles.athleteSelectionItemActive,
+                      !isCheckedIn(athlete) && styles.athleteSelectionItemDisabled
                     ]}
                     onPress={() => toggleAthleteSelection(athlete.id)}
+                    disabled={!isCheckedIn(athlete)}
                   >
                     <View style={styles.athleteSelectionCheckbox}>
                       {selectedAthletes.includes(athlete.id) && (
@@ -811,6 +863,9 @@ const AssignTeamsScreen = ({ navigation }) => {
                         <View style={styles.athleteSelectionTierBadge}>
                           <MobileCaption style={styles.athleteSelectionTierText}>{athlete.tier}</MobileCaption>
                         </View>
+                        {!isCheckedIn(athlete) && (
+                          <MobileCaption style={styles.notCheckedInTag}>Not checked in</MobileCaption>
+                        )}
                       </View>
                     </View>
                   </Pressable>
@@ -830,7 +885,7 @@ const AssignTeamsScreen = ({ navigation }) => {
             {/* Fill Teams Randomly Button */}
             <ButtonSecondary
               onPress={fillTeamsRandomly}
-              disabled={getUnassignedAthletes().length === 0}
+              disabled={!getUnassignedAthletes().some(isCheckedIn)}
               style={styles.fillRandomButton}
             >
               Fill Teams Randomly
@@ -857,7 +912,8 @@ const AssignTeamsScreen = ({ navigation }) => {
               onMoveAthlete={handleMoveAthlete}
               onRemoveAthlete={handleRemoveAthlete}
               onColorChange={openTeamEditor}
-              editable={isEditMode} 
+              editable={isEditMode}
+              checkedInIds={checkedInIds}
             />
           </Card>
         )}
@@ -1029,22 +1085,67 @@ const AssignTeamsScreen = ({ navigation }) => {
         <View style={styles.resetModalOverlay}>
           <View ref={resetConfirmRef} style={styles.resetModalContent}>
             <MobileH2 style={styles.resetModalTitle}>
-              {resetBlockedImpact ? resetBlockedImpact.title : 'Reset Teams'}
+              {resetNotice ? resetNotice.title : 'Reset Teams'}
             </MobileH2>
             <MobileBody style={styles.resetModalMessage}>
-              {resetBlockedImpact
-                ? resetBlockedImpact.message
+              {resetNotice
+                ? resetNotice.message
                 : 'Are you sure you want to reset all teams? This action cannot be undone.'}
             </MobileBody>
             <View style={styles.resetModalButtons}>
               <Pressable style={styles.resetModalButtonCancel} onPress={handleResetCancel}>
-                <Text style={styles.resetModalButtonTextCancel}>{resetBlockedImpact ? 'OK' : 'Cancel'}</Text>
+                <Text style={styles.resetModalButtonTextCancel}>{resetNotice ? 'OK' : 'Cancel'}</Text>
               </Pressable>
-              {!resetBlockedImpact && (
+              {!resetNotice && (
                 <Pressable style={styles.resetModalButtonConfirm} onPress={handleResetConfirm}>
                   <Text style={styles.resetModalButtonTextConfirm}>Reset</Text>
                 </Pressable>
               )}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Check-in Manager */}
+      {showCheckInManager && (
+        <View style={styles.resetModalOverlay}>
+          <View ref={checkInManagerRef} style={[styles.resetModalContent, styles.checkInManagerContent]}>
+            <MobileH2 style={styles.resetModalTitle}>Check-in</MobileH2>
+            <MobileBody style={styles.resetModalMessage}>
+              {checkedInAthletes.length} of {athletes.length} checked in. Only checked-in athletes are placed by Generate Teams and Fill Teams Randomly.
+            </MobileBody>
+            <ScrollView style={styles.checkInList}>
+              {athletes.map(athlete => {
+                const checkedIn = isCheckedIn(athlete);
+                return (
+                  <Pressable
+                    key={athlete.id}
+                    style={[styles.checkInRow, checkedIn && styles.checkInRowActive]}
+                    onPress={() => setCheckedIn([athlete.id], !checkedIn)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: checkedIn }}
+                    accessibilityLabel={`${athlete.name} checked in`}
+                  >
+                    <View style={styles.athleteSelectionCheckbox}>
+                      {checkedIn && <Text style={styles.athleteSelectionCheckmark}>✓</Text>}
+                    </View>
+                    <MobileBody style={styles.checkInRowName} numberOfLines={1} ellipsizeMode="tail">
+                      {athlete.name}
+                    </MobileBody>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.resetModalButtons}>
+              <Pressable
+                style={styles.resetModalButtonCancel}
+                onPress={() => setCheckedIn(athletes.map(a => a.id), true)}
+              >
+                <Text style={styles.resetModalButtonTextCancel}>Check in all</Text>
+              </Pressable>
+              <Pressable style={styles.resetModalButtonPrimary} onPress={() => setShowCheckInManager(false)}>
+                <Text style={styles.resetModalButtonTextConfirm}>Done</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -1183,6 +1284,41 @@ const styles = StyleSheet.create({
   },
   infoText: {
     color: styleTokens.colors.textSecondary,
+  },
+  checkInInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+  },
+  checkInManageLink: {
+    color: styleTokens.colors.primary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  checkInManagerContent: {
+    maxHeight: '85%',
+  },
+  checkInList: {
+    maxHeight: scale(320),
+    marginBottom: scale(12),
+  },
+  checkInRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: scale(10),
+    borderRadius: scale(8),
+    marginBottom: scale(6),
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  checkInRowActive: {
+    borderColor: styleTokens.colors.primary,
+    backgroundColor: 'rgba(100, 226, 211, 0.15)',
+  },
+  checkInRowName: {
+    color: styleTokens.colors.white,
+    flex: 1,
+    textTransform: 'none',
   },
   postGenButtons: {
     width: '100%',
@@ -1609,6 +1745,14 @@ const styles = StyleSheet.create({
   athleteSelectionItemActive: {
     backgroundColor: styleTokens.colors.primaryLight,
     borderColor: styleTokens.colors.primary,
+  },
+  athleteSelectionItemDisabled: {
+    opacity: 0.45,
+  },
+  notCheckedInTag: {
+    color: styleTokens.colors.warning,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   athleteSelectionCheckbox: {
     width: scale(24),

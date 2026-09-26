@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDivision } from '../context/DivisionContext';
-import { clearAthletes, getAthletes, removeAthlete as removeAthleteFromStorage, saveAthletes, updateAthlete } from '../lib/storage';
+import {
+  clearAthletes,
+  getAthletes,
+  removeAthlete as removeAthleteFromStorage,
+  saveAthletes,
+  setAthletesCheckedIn,
+  updateAthlete,
+} from '../lib/storage';
 
 /**
  * Division-scoped athlete roster for the active division.
@@ -63,6 +70,15 @@ export const useDivisionAthletes = () => {
     return saved;
   }, [activeDivisionId]);
 
+  const setCheckedIn = useCallback(async (athleteIds, checkedIn) => {
+    if (!activeDivisionId) {
+      throw new Error('No active division available.');
+    }
+    const saved = await setAthletesCheckedIn(athleteIds, checkedIn, activeDivisionId);
+    setAthletes(saved);
+    return saved;
+  }, [activeDivisionId]);
+
   const wipeAthletes = useCallback(async () => {
     if (!activeDivisionId) {
       throw new Error('No active division available.');
@@ -78,6 +94,7 @@ export const useDivisionAthletes = () => {
     persistAthletes,
     editAthlete,
     removeAthlete,
+    setCheckedIn,
     wipeAthletes,
   };
 };
