@@ -87,6 +87,27 @@ export const describeClearAthletesImpact = (participation) => {
 };
 
 /**
+ * Resetting, clearing, or regenerating teams wipes the record of who ran for
+ * which team, so it's blocked while any results exist.
+ * action: 'reset' | 'clear' | 'regenerate'
+ */
+export const describeTeamResetBlocked = (action = 'reset') => {
+  const titles = {
+    reset: "Can't Reset Teams",
+    clear: "Can't Clear Teams",
+    regenerate: "Can't Regenerate Teams",
+  };
+  const verbs = { reset: 'reset', clear: 'cleared', regenerate: 'regenerated' };
+  return {
+    blocked: true,
+    title: titles[action],
+    message:
+      `Event results are already recorded for these teams, so they can't be ${verbs[action]}. ` +
+      'To change this, reset results in the Scoreboard first.',
+  };
+};
+
+/**
  * After a delete/remove/move that left a team without a runner, build the
  * "Assign now / Later" prompt. Returns null when nothing needs replacing.
  * "Assign now" targets the earliest affected event.

@@ -21,11 +21,12 @@ import {
   getActiveDivisionData,
   getAthleteParticipation,
   getAthletes,
+  getEventResults,
   reassignAthleteTeam,
   updateActiveDivisionData,
 } from '../lib/storage';
 import { useDivisionTeams } from '../hooks/useDivisionTeams';
-import { buildReplacementPrompt, describeTeamChangeImpact } from '../lib/athleteImpact';
+import { buildReplacementPrompt, describeTeamChangeImpact, describeTeamResetBlocked } from '../lib/athleteImpact';
 
 const AssignTeamsScreen = ({ navigation }) => {
   const { activeDivisionId } = useDivision();
@@ -48,6 +49,7 @@ const AssignTeamsScreen = ({ navigation }) => {
   const [editedTeamColor, setEditedTeamColor] = useState('');
   const [availableColors] = useState(getTeamColors());
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetBlockedImpact, setResetBlockedImpact] = useState(null);
   
   // Manual assignment mode states
   const [assignmentMode, setAssignmentMode] = useState('auto'); // 'auto' or 'manual'
@@ -133,7 +135,14 @@ const AssignTeamsScreen = ({ navigation }) => {
     }
   };
 
-  const generateTeams = () => {
+  const generateTeams = async () => {
+    // Regenerating replaces existing teams, which would reshuffle athletes
+    // that recorded results are tied to.
+    if (teams.length > 0 && (await resultsExist())) {
+      openResetModal(describeTeamResetBlocked('regenerate'));
+      return;
+    }
+
     if (athletes.length === 0) {
       Alert.alert('No Athletes', 'Please add athletes first in the Team Builder screen.');
       return;
@@ -302,8 +311,23 @@ const AssignTeamsScreen = ({ navigation }) => {
     return teams.map(team => team.color).filter(Boolean);
   };
 
-  const resetTeams = () => {
+  const resultsExist = async () => {
+    try {
+      const results = await getEventResults(activeDivisionId);
+      return Array.isArray(results) && results.length > 0;
+    } catch (error) {
+      console.log('Error checking results:', error);
+      return false;
+    }
+  };
+
+  const resetTeams = async () => {
     console.log('Reset teams clicked');
+    openResetModal((await resultsExist()) ? describeTeamResetBlocked('reset') : null);
+  };
+
+  const openResetModal = (blockedImpact) => {
+    setResetBlockedImpact(blockedImpact);
     setShowResetConfirm(true);
 
     setTimeout(() => {
@@ -319,6 +343,10 @@ const AssignTeamsScreen = ({ navigation }) => {
 
   const handleResetConfirm = async () => {
     console.log('Confirming reset teams');
+    if (resetBlockedImpact) {
+      setShowResetConfirm(false);
+      return;
+    }
     try {
       await wipeTeams();
       emitForDivision(activeDivisionId, 'teamsUpdated', 0);
@@ -1000,17 +1028,23 @@ const AssignTeamsScreen = ({ navigation }) => {
       {showResetConfirm && (
         <View style={styles.resetModalOverlay}>
           <View ref={resetConfirmRef} style={styles.resetModalContent}>
-            <MobileH2 style={styles.resetModalTitle}>Reset Teams</MobileH2>
+            <MobileH2 style={styles.resetModalTitle}>
+              {resetBlockedImpact ? resetBlockedImpact.title : 'Reset Teams'}
+            </MobileH2>
             <MobileBody style={styles.resetModalMessage}>
-              Are you sure you want to reset all teams? This action cannot be undone.
+              {resetBlockedImpact
+                ? resetBlockedImpact.message
+                : 'Are you sure you want to reset all teams? This action cannot be undone.'}
             </MobileBody>
             <View style={styles.resetModalButtons}>
               <Pressable style={styles.resetModalButtonCancel} onPress={handleResetCancel}>
-                <Text style={styles.resetModalButtonTextCancel}>Cancel</Text>
+                <Text style={styles.resetModalButtonTextCancel}>{resetBlockedImpact ? 'OK' : 'Cancel'}</Text>
               </Pressable>
-              <Pressable style={styles.resetModalButtonConfirm} onPress={handleResetConfirm}>
-                <Text style={styles.resetModalButtonTextConfirm}>Reset</Text>
-              </Pressable>
+              {!resetBlockedImpact && (
+                <Pressable style={styles.resetModalButtonConfirm} onPress={handleResetConfirm}>
+                  <Text style={styles.resetModalButtonTextConfirm}>Reset</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>

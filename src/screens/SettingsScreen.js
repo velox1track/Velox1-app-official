@@ -21,12 +21,13 @@ import { getDefaultEventPool, getSequenceValidationSummary } from '../lib/random
 import { buildScoringPlaces, reconcileScoringWithTeamCount } from '../lib/scoring';
 import { useDivision } from '../context/DivisionContext';
 import SequenceValidationModal from '../components/SequenceValidationModal';
-import { describeClearAthletesImpact } from '../lib/athleteImpact';
+import { describeClearAthletesImpact, describeTeamResetBlocked } from '../lib/athleteImpact';
 import {
   getActiveDivisionData,
   getAthletes,
   getEligibilitySettings,
   getEventPool,
+  getEventResults,
   getInfractionsSettings,
   getPlannedTeams,
   getRosterParticipation,
@@ -70,6 +71,7 @@ const SettingsScreen = ({ navigation }) => {
   const [exportDataInfo, setExportDataInfo] = useState(null);
   const [showResetProgressConfirm, setShowResetProgressConfirm] = useState(false);
   const [showResetTeamsConfirm, setShowResetTeamsConfirm] = useState(false);
+  const [resetTeamsBlocked, setResetTeamsBlocked] = useState(null);
 
   // Race Roulette sequence settings
   const [rouletteSettings, setRouletteSettings] = useState({ totalEvents: 5, numRelays: 1, relayPositions: [] });
@@ -524,7 +526,9 @@ const SettingsScreen = ({ navigation }) => {
 
   const clearSpecificData = async (dataType, key) => {
     console.log(`Clear specific data button pressed: ${dataType}`);
-    let athletesImpact = null;
+    // Athletes and teams are protected once results exist; other data types
+    // use the generic confirm.
+    let impact = null;
     if (dataType === 'athletes') {
       let participation = null;
       try {
@@ -532,9 +536,11 @@ const SettingsScreen = ({ navigation }) => {
       } catch (error) {
         console.log('Error checking roster participation:', error);
       }
-      athletesImpact = describeClearAthletesImpact(participation);
+      impact = describeClearAthletesImpact(participation);
+    } else if (dataType === 'teams' && (await resultsExist())) {
+      impact = describeTeamResetBlocked('clear');
     }
-    setClearSpecificType({ dataType, key, athletesImpact });
+    setClearSpecificType({ dataType, key, impact });
     setShowClearSpecificConfirm(true);
   };
 
@@ -548,8 +554,8 @@ const SettingsScreen = ({ navigation }) => {
   const handleClearSpecificConfirm = async () => {
     if (!clearSpecificType) return;
 
-    const { dataType, athletesImpact } = clearSpecificType;
-    if (athletesImpact?.blocked) {
+    const { dataType, impact } = clearSpecificType;
+    if (impact?.blocked) {
       handleClearSpecificCancel();
       return;
     }
@@ -578,7 +584,26 @@ const SettingsScreen = ({ navigation }) => {
     setClearSpecificType(null);
   };
 
+  const resultsExist = async () => {
+    try {
+      const results = await getEventResults(activeDivisionId);
+      return Array.isArray(results) && results.length > 0;
+    } catch (error) {
+      console.log('Error checking results:', error);
+      return false;
+    }
+  };
+
+  const openResetTeamsConfirm = async () => {
+    setResetTeamsBlocked((await resultsExist()) ? describeTeamResetBlocked('reset') : null);
+    setShowResetTeamsConfirm(true);
+  };
+
   const handleResetTeamsConfirm = async () => {
+    if (resetTeamsBlocked) {
+      setShowResetTeamsConfirm(false);
+      return;
+    }
     try {
       await resetDivision(activeDivisionId, RESET_SCOPES.TEAMS);
       setTeamCount(0);
@@ -933,7 +958,7 @@ const SettingsScreen = ({ navigation }) => {
           {teamCount > 0 && (
             <View style={styles.resetTeamsRow}>
               <ButtonSecondary
-                onPress={() => setShowResetTeamsConfirm(true)}
+                onPress={openResetTeamsConfirm}
                 style={styles.resetTeamsButton}
               >
                 Reset Teams
@@ -1361,17 +1386,23 @@ const SettingsScreen = ({ navigation }) => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <MobileH2 style={styles.modalTitle}>Reset Teams</MobileH2>
+            <MobileH2 style={styles.modalTitle}>
+              {resetTeamsBlocked ? resetTeamsBlocked.title : 'Reset Teams'}
+            </MobileH2>
             <MobileBody style={styles.modalMessage}>
-              This will delete all teams and athlete assignments. Your athletes list will not be affected. This action cannot be undone.
+              {resetTeamsBlocked
+                ? resetTeamsBlocked.message
+                : 'This will delete all teams and athlete assignments. Your athletes list will not be affected. This action cannot be undone.'}
             </MobileBody>
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalButtonCancel} onPress={handleResetTeamsCancel}>
-                <MobileBody style={styles.modalButtonTextCancel}>Cancel</MobileBody>
+                <MobileBody style={styles.modalButtonTextCancel}>{resetTeamsBlocked ? 'OK' : 'Cancel'}</MobileBody>
               </Pressable>
-              <Pressable style={[styles.modalButtonConfirm, styles.modalButtonDanger]} onPress={handleResetTeamsConfirm}>
-                <MobileBody style={styles.modalButtonText}>Reset Teams</MobileBody>
-              </Pressable>
+              {!resetTeamsBlocked && (
+                <Pressable style={[styles.modalButtonConfirm, styles.modalButtonDanger]} onPress={handleResetTeamsConfirm}>
+                  <MobileBody style={styles.modalButtonText}>Reset Teams</MobileBody>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>
@@ -1387,8 +1418,8 @@ const SettingsScreen = ({ navigation }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <MobileH2 style={styles.modalTitle}>
-              {clearSpecificType?.athletesImpact
-                ? clearSpecificType.athletesImpact.title
+              {clearSpecificType?.impact
+                ? clearSpecificType.impact.title
                 : `Clear ${clearSpecificType ? ({
                     athletes: 'Athletes',
                     teams: 'Teams',
@@ -1397,8 +1428,8 @@ const SettingsScreen = ({ navigation }) => {
                   })[clearSpecificType.dataType] : ''}`}
             </MobileH2>
             <MobileBody style={styles.modalMessage}>
-              {clearSpecificType?.athletesImpact
-                ? clearSpecificType.athletesImpact.message
+              {clearSpecificType?.impact
+                ? clearSpecificType.impact.message
                 : `This will permanently delete all ${clearSpecificType ? ({
                     athletes: 'athletes',
                     teams: 'teams',
@@ -1409,10 +1440,10 @@ const SettingsScreen = ({ navigation }) => {
             <View style={styles.modalButtons}>
               <Pressable style={styles.modalButtonCancel} onPress={handleClearSpecificCancel}>
                 <MobileBody style={styles.modalButtonTextCancel}>
-                  {clearSpecificType?.athletesImpact?.blocked ? 'OK' : 'Cancel'}
+                  {clearSpecificType?.impact?.blocked ? 'OK' : 'Cancel'}
                 </MobileBody>
               </Pressable>
-              {!clearSpecificType?.athletesImpact?.blocked && (
+              {!clearSpecificType?.impact?.blocked && (
                 <Pressable style={[styles.modalButtonConfirm, styles.modalButtonDanger]} onPress={handleClearSpecificConfirm}>
                   <MobileBody style={styles.modalButtonText}>Clear Data</MobileBody>
                 </Pressable>
